@@ -46,8 +46,8 @@ struct nvmpictx
 	unsigned long long timestamp[MAX_BUFFERS];
 };
 
-void respondToResolutionEvent(v4l2_format &format, v4l2_crop &crop,nvmpictx* ctx){
-	
+void respondToResolutionEvent(v4l2_format &format, v4l2_crop &crop,nvmpictx* ctx)
+{
 	int32_t minimumDecoderCaptureBuffers;
 	int ret=0;
 	NvBufferCreateParams input_params = {0};
@@ -206,7 +206,8 @@ void respondToResolutionEvent(v4l2_format &format, v4l2_crop &crop,nvmpictx* ctx
 	ctx->got_res_event = true;
 }
 
-void *dec_capture_loop_fcn(void *arg){
+void dec_capture_loop_fcn(void *arg)
+{
 	nvmpictx* ctx=(nvmpictx*)arg;
 	NvVideoDecoder *dec = ctx->dec;
 	
@@ -399,6 +400,8 @@ void *dec_capture_loop_fcn(void *arg){
 #endif
 	// Wake all waiting threads at EOS or decoder error
 	ctx->has_frame_cv->notify_all();
+	
+	return;
 }
 
 nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
