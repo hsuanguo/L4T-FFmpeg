@@ -1,6 +1,6 @@
 #include "nvmpi.h"
 #include "NvVideoEncoder.h"
-#include "nvbuf_utils.h"
+#include "nvUtils2NvBuf.h"
 #include <vector>
 #include <iostream>
 #include <thread>
@@ -149,7 +149,6 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param){
 		default:
 			ctx->profile=V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
 			break;
-
 	}
 
 	switch(param->level){
@@ -219,10 +218,7 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param){
 		default:
 			ctx->hw_preset_type = V4L2_ENC_HW_PRESET_MEDIUM;
 			break;
-
 	}
-
-
 
 	if(param->enableLossless)
 		ctx->enableLossless=true;
@@ -374,9 +370,9 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param){
 }
 
 
-int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame){
+int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
+{
 	int ret;
-
 	struct v4l2_buffer v4l2_buf;
 	struct v4l2_plane planes[MAX_PLANES];
 	NvBuffer *nvBuffer;
@@ -389,27 +385,28 @@ int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame){
 	if(ctx->enc->isInError())
 		return -1;
 
-	if(ctx->index < ctx->enc->output_plane.getNumBuffers()){
-
+	if(ctx->index < ctx->enc->output_plane.getNumBuffers())
+	{
 		nvBuffer=ctx->enc->output_plane.getNthBuffer(ctx->index);
 		v4l2_buf.index = ctx->index ;
 		ctx->index++;
-
-	}else{
+	}
+	else
+	{
 		ret = ctx->enc->output_plane.dqBuffer(v4l2_buf, &nvBuffer, NULL, -1);
-		if (ret < 0) {
+		if (ret < 0)
+		{
 			cout << "Error DQing buffer at output plane" << std::endl;
 			return false;
 		}
-
 	}
-
-	memcpy(nvBuffer->planes[0].data,frame->payload[0],frame->payload_size[0]);
-	memcpy(nvBuffer->planes[1].data,frame->payload[1],frame->payload_size[1]);
-	memcpy(nvBuffer->planes[2].data,frame->payload[2],frame->payload_size[2]);
-	nvBuffer->planes[0].bytesused=frame->payload_size[0];
-	nvBuffer->planes[1].bytesused=frame->payload_size[1];
-	nvBuffer->planes[2].bytesused=frame->payload_size[2];
+	
+	nvBuffer->planes[0].bytesused=nvBuffer->planes[0].fmt.stride * nvBuffer->planes[0].fmt.height;
+	nvBuffer->planes[1].bytesused=nvBuffer->planes[1].fmt.stride * nvBuffer->planes[1].fmt.height;
+	nvBuffer->planes[2].bytesused=nvBuffer->planes[2].fmt.stride * nvBuffer->planes[2].fmt.height;
+	memcpy(nvBuffer->planes[0].data, frame->payload[0], nvBuffer->planes[0].bytesused);
+	memcpy(nvBuffer->planes[1].data, frame->payload[1], nvBuffer->planes[1].bytesused);
+	memcpy(nvBuffer->planes[2].data, frame->payload[2], nvBuffer->planes[2].bytesused);
 
 	v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	v4l2_buf.timestamp.tv_usec = frame->timestamp % 1000000;
@@ -421,8 +418,8 @@ int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame){
 	return 0;
 }
 
-int nvmpi_encoder_get_packet(nvmpictx* ctx,nvPacket* packet){
-
+int nvmpi_encoder_get_packet(nvmpictx* ctx,nvPacket* packet)
+{
 	int ret,packet_index;
 
 	if(ctx->packet_pools->empty())
@@ -448,12 +445,13 @@ int nvmpi_encoder_get_packet(nvmpictx* ctx,nvPacket* packet){
 	return 0;
 }
 
-int nvmpi_encoder_close(nvmpictx* ctx){
-
+int nvmpi_encoder_close(nvmpictx* ctx)
+{
 	ctx->enc->capture_plane.stopDQThread();
 	ctx->enc->capture_plane.waitForDQThread(1000);
 	delete ctx->enc;
 	delete ctx->packet_pools;
 	delete ctx;
+	return 0;
 }
 
