@@ -215,12 +215,19 @@ void dec_capture_loop_fcn(void *arg)
 	struct v4l2_crop v4l2Crop;
 	struct v4l2_event v4l2Event;
 	int ret,buf_index=0;
-#ifndef WITH_NVUTILS
+	
+	/* override default seesion. Without overriding session we wil
+	   get seg. fault if decoding in forked process*/
+#ifdef WITH_NVUTILS
+	NvBufSurfTransformConfigParams session;
+	session.compute_mode = NvBufSurfTransformCompute_VIC;
+	session.gpu_id = 0;
+	session.cuda_stream = 0;
+	NvBufSurfTransformSetSessionParams(&session);
+#else
 	NvBufferSession session;
 	session = NvBufferSessionCreate();
 #endif
-//create NvBufSurfTransformConfigParams. TODO test if it still affecting decoding in forked process
-// NvBufSurfTransformSetSessionParams(NvBufSurfTransformConfigParams *config_params) call before transform.
 
     /* Need to wait for the first Resolution change event, so that
        the decoder knows the stream resolution and can allocate appropriate
