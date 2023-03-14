@@ -252,6 +252,7 @@ void *dec_capture_loop_fcn(void *arg){
 
 #ifdef WITH_NVUTILS
 	NvBufSurface *dst_dma_surface=0;
+	NvBufSurface *dec_buffer_surface=0;
 	ret = NvBufSurfaceFromFd(ctx->dst_dma_fd, (void**)(&dst_dma_surface));
 	NvBufSurfaceParams dst_dma_surface_params = dst_dma_surface->surfaceList[0];
 	NvBufSurfacePlaneParams parm = dst_dma_surface_params.planeParams;
@@ -263,7 +264,6 @@ void *dec_capture_loop_fcn(void *arg){
 	while (!(ctx->eos || dec->isInError()))
 	{
 		NvBuffer *dec_buffer;
-		NvBufSurface *dec_buffer_surface=0;
 		
 		// Check for Resolution change again.
 		ret = dec->dqEvent(v4l2Event, false);
@@ -319,9 +319,12 @@ void *dec_capture_loop_fcn(void *arg){
 			transform_params.transform_flag = NVBUFFER_TRANSFORM_FILTER;
 			transform_params.transform_flip = NvBufferTransform_None;
 			transform_params.transform_filter = NvBufferTransform_Filter_Smart;
+#ifdef WITH_NVUTILS
 			transform_params.src_rect = &src_rect;
 			transform_params.dst_rect = &dest_rect;
-#ifndef WITH_NVUTILS
+#else
+			transform_params.src_rect = src_rect;
+			transform_params.dst_rect = dest_rect;
 			transform_params.session = session;
 #endif
 			
