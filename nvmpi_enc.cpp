@@ -400,13 +400,13 @@ int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
 			return false;
 		}
 	}
-
-	memcpy(nvBuffer->planes[0].data,frame->payload[0],frame->payload_size[0]);
-	memcpy(nvBuffer->planes[1].data,frame->payload[1],frame->payload_size[1]);
-	memcpy(nvBuffer->planes[2].data,frame->payload[2],frame->payload_size[2]);
-	nvBuffer->planes[0].bytesused=frame->payload_size[0];
-	nvBuffer->planes[1].bytesused=frame->payload_size[1];
-	nvBuffer->planes[2].bytesused=frame->payload_size[2];
+	
+	nvBuffer->planes[0].bytesused=nvBuffer->planes[0].fmt.stride * nvBuffer->planes[0].fmt.height;
+	nvBuffer->planes[1].bytesused=nvBuffer->planes[1].fmt.stride * nvBuffer->planes[1].fmt.height;
+	nvBuffer->planes[2].bytesused=nvBuffer->planes[2].fmt.stride * nvBuffer->planes[2].fmt.height;
+	memcpy(nvBuffer->planes[0].data, frame->payload[0], nvBuffer->planes[0].bytesused);
+	memcpy(nvBuffer->planes[1].data, frame->payload[1], nvBuffer->planes[1].bytesused);
+	memcpy(nvBuffer->planes[2].data, frame->payload[2], nvBuffer->planes[2].bytesused);
 
 	v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	v4l2_buf.timestamp.tv_usec = frame->timestamp % 1000000;
