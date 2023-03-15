@@ -34,10 +34,10 @@ struct nvmpictx
 	int dmaBufferFileDescriptor[MAX_BUFFERS];
 	nvPixFormat out_pixfmt;
 	unsigned int decoder_pixfmt{0};
-	std::thread * dec_capture_loop{nullptr};
-	std::mutex* mutex{nullptr};
-	std::condition_variable* has_frame_cv{nullptr};
-	std::queue<int> * frame_pools{nullptr};
+	std::thread dec_capture_loop;
+	std::mutex mutex;
+	std::condition_variable has_frame_cv;
+	std::queue<int> frame_pools;
 	unsigned char * bufptr_0[MAX_BUFFERS];
 	unsigned char * bufptr_1[MAX_BUFFERS];
 	unsigned char * bufptr_2[MAX_BUFFERS];
@@ -338,7 +338,7 @@ void dec_capture_loop_fcn(void *arg)
 			
 			dec_buffer->planes[0].fd = ctx->dmaBufferFileDescriptor[v4l2_buf.index];
 
-			ctx->mutex->lock();
+			ctx->mutex.lock();
 			if(!ctx->eos)
 			{
 #ifdef WITH_NVUTILS
@@ -379,20 +379,19 @@ void dec_capture_loop_fcn(void *arg)
 					ret=NvBuffer2Raw(ctx->dst_dma_fd,2,parm.width[2],parm.height[2],ctx->bufptr_2[buf_index]);
 #endif
 
-				ctx->frame_pools->push(buf_index);
+				ctx->frame_pools.push(buf_index);
 				ctx->timestamp[buf_index]= (v4l2_buf.timestamp.tv_usec % 1000000) + (v4l2_buf.timestamp.tv_sec * 1000000UL);
 
 				buf_index=(buf_index+1)%MAX_BUFFERS;
-
 			}
-			ctx->mutex->unlock();
+			ctx->mutex.unlock();
 
 			if (ctx->eos)
 			{
 				break;
 			}
 
-			ctx->has_frame_cv->notify_one();
+			ctx->has_frame_cv.notify_one();
 
 			v4l2_buf.m.planes[0].m.fd = ctx->dmaBufferFileDescriptor[v4l2_buf.index];
 			if (dec->capture_plane.qBuffer(v4l2_buf, NULL) < 0)
@@ -406,7 +405,7 @@ void dec_capture_loop_fcn(void *arg)
 	NvBufferSessionDestroy(session);
 #endif
 	// Wake all waiting threads at EOS or decoder error
-	ctx->has_frame_cv->notify_all();
+	ctx->has_frame_cv.notify_all();
 	
 	return;
 }
@@ -452,7 +451,6 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 
 	TEST_ERROR(ret < 0, "Could not set output plane format", ret);
 
-	//ctx->nalu_parse_buffer = new char[CHUNK_SIZE];
 	ret = ctx->dec->setFrameInputMode(0);
 	TEST_ERROR(ret < 0, "Error in decoder setFrameInputMode for NALU", ret);
 
@@ -468,9 +466,6 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 	ctx->got_res_event=false;
 	ctx->index=0;
 	ctx->frame_size[0]=0;
-	ctx->frame_pools=new std::queue<int>;
-	ctx->mutex = new std::mutex();
-	ctx->has_frame_cv = new std::condition_variable();
 	for(int index=0;index<MAX_BUFFERS;index++)
 		ctx->dmaBufferFileDescriptor[index]=0;
 	for(int index=0;index<MAX_BUFFERS;index++){
@@ -479,17 +474,14 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 		ctx->bufptr_2[index] = nullptr;
 	}
 	ctx->numberCaptureBuffers=0;
-	ctx->dec_capture_loop=new thread(dec_capture_loop_fcn,ctx);
+	ctx->dec_capture_loop = std::thread(dec_capture_loop_fcn,ctx);
 
 	return ctx;
 }
 
-
-
-
-int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet){
-	int ret;
-	
+int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
+{
+	int ret;	
 	struct v4l2_buffer v4l2_buf;
 	struct v4l2_plane planes[MAX_PLANES];
 	NvBuffer *nvBuffer;
@@ -512,8 +504,6 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet){
 	memcpy(nvBuffer->planes[0].data,packet->payload,packet->payload_size);
 	nvBuffer->planes[0].bytesused=packet->payload_size;
 
-
-
 	if (ctx->index < ctx->dec->output_plane.getNumBuffers())
 	{
 		v4l2_buf.index = ctx->index ;
@@ -525,7 +515,6 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet){
 	v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	v4l2_buf.timestamp.tv_sec = packet->pts / 1000000;
 	v4l2_buf.timestamp.tv_usec = packet->pts % 1000000;
-
 
 	ret = ctx->dec->output_plane.qBuffer(v4l2_buf, NULL);
 	if (ret < 0)
@@ -543,32 +532,29 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet){
 		std::cout << "Input file read complete" << std::endl;
 	}
 
-
 	return 0;
-
 }
-
 
 int nvmpi_decoder_get_frame(nvmpictx* ctx,nvFrame* frame,bool wait)
 {	
 	int ret,picture_index;
-	std::unique_lock<std::mutex> lock(*ctx->mutex);
+	std::unique_lock<std::mutex> lock(ctx->mutex);
 
 	if (wait)
 	{
-		while (ctx->frame_pools->empty() && !ctx->eos && !ctx->dec->isInError())
+		while (ctx->frame_pools.empty() && !ctx->eos && !ctx->dec->isInError())
 		{
-			ctx->has_frame_cv->wait(lock);
+			ctx->has_frame_cv.wait(lock);
 		}
 	}
 
-	if (ctx->frame_pools->empty())
+	if (ctx->frame_pools.empty())
 	{
 		return -1;
 	}
 
-	picture_index=ctx->frame_pools->front();
-	ctx->frame_pools->pop();
+	picture_index=ctx->frame_pools.front();
+	ctx->frame_pools.pop();
 
 	frame->width=ctx->coded_width;
 	frame->height=ctx->coded_height;
@@ -592,16 +578,15 @@ int nvmpi_decoder_get_frame(nvmpictx* ctx,nvFrame* frame,bool wait)
 
 int nvmpi_decoder_close(nvmpictx* ctx)
 {
-	ctx->mutex->lock();
+	ctx->mutex.lock();
 	ctx->eos=true;
-	ctx->mutex->unlock();
+	ctx->mutex.unlock();
 	
 	ctx->dec->capture_plane.setStreamStatus(false);
 	
-	if (ctx->dec_capture_loop) {
-		ctx->dec_capture_loop->join();
-		delete ctx->dec_capture_loop;
-		ctx->dec_capture_loop = nullptr;
+	if (ctx->dec_capture_loop.joinable())
+	{
+		ctx->dec_capture_loop.join();
 	}
 
 	if(ctx->dst_dma_fd != -1)
@@ -627,10 +612,6 @@ int nvmpi_decoder_close(nvmpictx* ctx)
 		delete[] ctx->bufptr_1[index];
 		delete[] ctx->bufptr_2[index];
 	}
-
-	delete ctx->mutex; ctx->mutex = nullptr;
-	delete ctx->has_frame_cv; ctx->has_frame_cv = nullptr;
-	delete ctx->frame_pools; ctx->frame_pools = nullptr;
 
 	delete ctx; ctx = nullptr;
 
