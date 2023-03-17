@@ -235,38 +235,40 @@ void dec_capture_loop_fcn(void *arg)
     do
     {
         /* Refer ioctl VIDIOC_DQEVENT */
-        ret = dec->dqEvent(v4l2Event, 50000);
+        ret = dec->dqEvent(v4l2Event, 500);
         if (ret < 0)
         {
-			ctx->eos=true;
             if (errno == EAGAIN)
             {
-                ERROR_MSG("Timed out waiting for first V4L2_EVENT_RESOLUTION_CHANGE");
+                continue;
             }
             else
             {
                ERROR_MSG("Error in dequeueing decoder event");
+               ctx->eos=true;
             }
-            //abort(ctx);
-            break;
         }
     }
     while ((v4l2Event.type != V4L2_EVENT_RESOLUTION_CHANGE) && !ctx->eos);
 
     /* Received the resolution change event, now can do respondToResolutionEvent. */
-    if (!ctx->eos)
-        respondToResolutionEvent(v4l2Format, v4l2Crop, ctx);
-
+    if (!ctx->eos) respondToResolutionEvent(v4l2Format, v4l2Crop, ctx);
 
 #ifdef WITH_NVUTILS
+	//TODO move it to context and respondToResolutionEvent()
 	NvBufSurface *dst_dma_surface=0;
 	NvBufSurface *dec_buffer_surface=0;
-	ret = NvBufSurfaceFromFd(ctx->dst_dma_fd, (void**)(&dst_dma_surface));
-	NvBufSurfaceParams dst_dma_surface_params = dst_dma_surface->surfaceList[0];
-	NvBufSurfacePlaneParams parm = dst_dma_surface_params.planeParams;
+	NvBufSurfaceParams dst_dma_surface_params;
+	NvBufSurfacePlaneParams parm;
+	if (!ctx->eos)
+	{
+		ret = NvBufSurfaceFromFd(ctx->dst_dma_fd, (void**)(&dst_dma_surface));
+		dst_dma_surface_params = dst_dma_surface->surfaceList[0];
+		parm = dst_dma_surface_params.planeParams;
+	}
 #else
 	NvBufferParams parm;
-	ret = NvBufferGetParams(ctx->dst_dma_fd, &parm);
+	if (!ctx->eos) ret = NvBufferGetParams(ctx->dst_dma_fd, &parm);
 #endif
 	
 	while (!(ctx->eos || dec->isInError()))
@@ -401,6 +403,7 @@ void dec_capture_loop_fcn(void *arg)
 		}
 	}
 	
+dec_capture_loop_end:
 #ifndef WITH_NVUTILS
 	NvBufferSessionDestroy(session);
 #endif
