@@ -20,6 +20,7 @@
 #define NvBufferTransform_Filter_Smart NvBufSurfTransformInter_Algo3
 #define NvBufferTransform_Filter_Nearest NvBufSurfTransformInter_Nearest
 #define NvBufferParams NvBufSurfTransform
+#define NvBufferColorFormat NvBufSurfaceColorFormat
 
 //#define NvBuffer2Raw(dmabuf, plane, out_width, out_height, ptr)
 #else

@@ -78,7 +78,7 @@ struct nvmpictx
 	void deinitDecoderCapturePlane();
 };
 
-NvBufSurfaceColorFormat getNvColorFormatFromV4l2Format(v4l2_format &format)
+NvBufferColorFormat getNvColorFormatFromV4l2Format(v4l2_format &format)
 {
 	NvBufSurfaceColorFormat ret_cf = NvBufferColorFormat_NV12; 
 	switch (format.fmt.pix_mp.colorspace)
@@ -458,39 +458,31 @@ void dec_capture_loop_fcn(void *arg)
 			}
 			
 			dec_buffer->planes[0].fd = ctx->dmaBufferFileDescriptor[v4l2_buf.index];
-
-			if(!ctx->eos)
-			{
+			
 #ifdef WITH_NVUTILS
-				ret = NvBufSurfTransform(ctx->dmaBufferSurface[v4l2_buf.index], ctx->dst_dma_surface, &(ctx->transform_params));
+			ret = NvBufSurfTransform(ctx->dmaBufferSurface[v4l2_buf.index], ctx->dst_dma_surface, &(ctx->transform_params));
 #else
-				ret = NvBufferTransform(dec_buffer->planes[0].fd, ctx->dst_dma_fd, &(ctx->transform_params));
+			ret = NvBufferTransform(dec_buffer->planes[0].fd, ctx->dst_dma_fd, &(ctx->transform_params));
 #endif
-				TEST_ERROR(ret==-1, "Transform failed",ret);
-						
+			TEST_ERROR(ret==-1, "Transform failed",ret);
+					
 #ifdef WITH_NVUTILS
-				ret=NvBufSurface2Raw(ctx->dst_dma_surface,0,0,ctx->frame_linesize[0],ctx->frame_height[0],ctx->bufptr_0[buf_index]);
-				ret=NvBufSurface2Raw(ctx->dst_dma_surface,0,1,ctx->frame_linesize[1],ctx->frame_height[1],ctx->bufptr_1[buf_index]);	
-				if(ctx->out_pixfmt==NV_PIX_YUV420)
-					ret=NvBufSurface2Raw(ctx->dst_dma_surface,0,2,ctx->frame_linesize[2],ctx->frame_height[2],ctx->bufptr_2[buf_index]);
+			ret=NvBufSurface2Raw(ctx->dst_dma_surface,0,0,ctx->frame_linesize[0],ctx->frame_height[0],ctx->bufptr_0[buf_index]);
+			ret=NvBufSurface2Raw(ctx->dst_dma_surface,0,1,ctx->frame_linesize[1],ctx->frame_height[1],ctx->bufptr_1[buf_index]);	
+			if(ctx->out_pixfmt==NV_PIX_YUV420)
+				ret=NvBufSurface2Raw(ctx->dst_dma_surface,0,2,ctx->frame_linesize[2],ctx->frame_height[2],ctx->bufptr_2[buf_index]);
 #else
-				ret=NvBuffer2Raw(ctx->dst_dma_fd,0,ctx->frame_linesize[0],ctx->frame_height[0],ctx->bufptr_0[buf_index]);
-				ret=NvBuffer2Raw(ctx->dst_dma_fd,1,ctx->frame_linesize[1],ctx->frame_height[1],ctx->bufptr_1[buf_index]);	
-				if(ctx->out_pixfmt==NV_PIX_YUV420)
-					ret=NvBuffer2Raw(ctx->dst_dma_fd,2,ctx->frame_linesize[2],ctx->frame_height[2],ctx->bufptr_2[buf_index]);
+			ret=NvBuffer2Raw(ctx->dst_dma_fd,0,ctx->frame_linesize[0],ctx->frame_height[0],ctx->bufptr_0[buf_index]);
+			ret=NvBuffer2Raw(ctx->dst_dma_fd,1,ctx->frame_linesize[1],ctx->frame_height[1],ctx->bufptr_1[buf_index]);	
+			if(ctx->out_pixfmt==NV_PIX_YUV420)
+				ret=NvBuffer2Raw(ctx->dst_dma_fd,2,ctx->frame_linesize[2],ctx->frame_height[2],ctx->bufptr_2[buf_index]);
 #endif
-				
-				ctx->mutex.lock();
-				ctx->frame_pools.push(buf_index);
-				ctx->timestamp[buf_index]= (v4l2_buf.timestamp.tv_usec % 1000000) + (v4l2_buf.timestamp.tv_sec * 1000000UL);
-				buf_index=(buf_index+1)%MAX_BUFFERS;
-				ctx->mutex.unlock();
-			}
-
-			if (ctx->eos)
-			{
-				break;
-			}
+			
+			ctx->mutex.lock();
+			ctx->frame_pools.push(buf_index);
+			ctx->timestamp[buf_index]= (v4l2_buf.timestamp.tv_usec % 1000000) + (v4l2_buf.timestamp.tv_sec * 1000000UL);
+			buf_index=(buf_index+1)%MAX_BUFFERS;
+			ctx->mutex.unlock();
 
 			ctx->has_frame_cv.notify_one();
 
@@ -511,6 +503,7 @@ void dec_capture_loop_fcn(void *arg)
 	return;
 }
 
+//TODO: accept in nvmpi_create_decoder stream params (width and height, etc...) from ffmpeg.
 nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 	
 	int ret;
@@ -554,6 +547,10 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 
 	ret = ctx->dec->setFrameInputMode(0);
 	TEST_ERROR(ret < 0, "Error in decoder setFrameInputMode for NALU", ret);
+	
+	//TODO: create option to enable max performace mode (?)
+	//ret = ctx->dec->setMaxPerfMode(true);
+	//TEST_ERROR(ret < 0, "Error while setting decoder to max perf", ret);
 
 	ret = ctx->dec->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 10, false, true);
 	TEST_ERROR(ret < 0, "Error while setting up output plane", ret);
