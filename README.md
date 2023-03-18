@@ -18,11 +18,15 @@ L4T Multimedia API for ffmpeg
     git clone git://source.ffmpeg.org/ffmpeg.git -b release/4.2 --depth=1
     or
     git clone git://source.ffmpeg.org/ffmpeg.git -b release/4.4 --depth=1
+    or
+    git clone git://source.ffmpeg.org/ffmpeg.git -b release/6.0 --depth=1
     cd ffmpeg
     get and apply patch for your ffmpeg version
     wget -O ffmpeg_nvmpi.patch https://github.com/Keylost/jetson-ffmpeg/raw/master/ffmpeg_patches/ffmpeg4.2_nvmpi.patch
     or
     wget -O ffmpeg_nvmpi.patch https://github.com/Keylost/jetson-ffmpeg/raw/master/ffmpeg_patches/ffmpeg4.4_nvmpi.patch
+    or
+    wget -O ffmpeg_nvmpi.patch https://github.com/Keylost/jetson-ffmpeg/raw/master/ffmpeg_patches/ffmpeg6.0_nvmpi.patch
     git apply ffmpeg_nvmpi.patch
     ./configure --enable-nvmpi
     make
