@@ -80,7 +80,7 @@ struct nvmpictx
 
 NvBufferColorFormat getNvColorFormatFromV4l2Format(v4l2_format &format)
 {
-	NvBufSurfaceColorFormat ret_cf = NvBufferColorFormat_NV12; 
+	NvBufferColorFormat ret_cf = NvBufferColorFormat_NV12; 
 	switch (format.fmt.pix_mp.colorspace)
 	{
 		case V4L2_COLORSPACE_SMPTE170M:
@@ -262,7 +262,8 @@ void nvmpictx::updateFrameSizeParams()
 	parm = dst_dma_surface_params.planeParams;
 #else
 	NvBufferParams parm;
-	ret = NvBufferGetParams(dst_dma_fd, &parm);
+	int ret = NvBufferGetParams(dst_dma_fd, &parm);
+	TEST_ERROR(ret < 0, "Failed to get dst dma buf params", ret);
 #endif
 
 	frame_linesize[0] = parm.width[0];
