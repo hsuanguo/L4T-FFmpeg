@@ -33,15 +33,16 @@ struct NVMPI_framePool
 	std::mutex m_filledBuf;
 	std::queue<int> emptyBuf; //list of buffers available to fill 
 	std::queue<int> filledBuf; //filled buffers to consume
+	unsigned long long timestamp[MAX_BUFFERS];
 	
 	bool init(const int& imgW, const int& imgH, const NvBufferColorFormat& cFmt, const int& bufNumber);
 	void deinit();
 	
 	int dqEmptyBuf();
-	void qEmptyBuf(int fd);
+	void qEmptyBuf(int bIndex);
 	
 	int dqFilledBuf();
-	void qFilledBuf(int fd);
+	void qFilledBuf(int bIndex);
 };
 
 bool NVMPI_framePool::init(const int& imgW, const int& imgH, const NvBufferColorFormat& cFmt, const int& bufNumber)
@@ -125,10 +126,10 @@ void NVMPI_framePool::deinit()
 	return;
 }
 
-void NVMPI_framePool::qFilledBuf(int fd)
+void NVMPI_framePool::qFilledBuf(int bIndex)
 {
 	m_filledBuf.lock();
-	emptyBuf.push(fd);
+	emptyBuf.push(bIndex);
 	m_filledBuf.unlock();
 	return;
 }
@@ -147,10 +148,10 @@ int NVMPI_framePool::dqFilledBuf()
 	return ret;
 }
 
-void NVMPI_framePool::qEmptyBuf(int fd)
+void NVMPI_framePool::qEmptyBuf(int bIndex)
 {
 	m_emptyBuf.lock();
-	emptyBuf.push(fd);
+	emptyBuf.push(bIndex);
 	m_emptyBuf.unlock();
 	return;
 }
@@ -179,12 +180,10 @@ struct nvmpictx
 	
 	int numberCaptureBuffers{0};
 	
-	int dst_dma_fd{0};
 	int dmaBufferFileDescriptor[MAX_BUFFERS];
 	
 #ifdef WITH_NVUTILS
 	NvBufSurface *dmaBufferSurface[MAX_BUFFERS];
-	NvBufSurface *dst_dma_surface=0;
 	NvBufSurfTransformConfigParams session;
 #else
 	NvBufferSession session;
@@ -196,13 +195,7 @@ struct nvmpictx
 	unsigned int decoder_pixfmt{0};
 	std::thread dec_capture_loop;
 	
-	std::mutex mutex;
-	std::condition_variable has_frame_cv;
-	std::queue<int> frame_pools;
-	unsigned char *bufptr_0[MAX_BUFFERS];
-	unsigned char *bufptr_1[MAX_BUFFERS];
-	unsigned char *bufptr_2[MAX_BUFFERS];
-	unsigned long long timestamp[MAX_BUFFERS];
+	NVMPI_framePool fPool;
 	
 	//frame size params
 	unsigned int frame_size[MAX_NUM_PLANES];
@@ -277,42 +270,6 @@ NvBufferColorFormat getNvColorFormatFromV4l2Format(v4l2_format &format)
 	return ret_cf;
 }
 
-void nvmpictx::deinitDstDmaBuffer()
-{
-	if(dst_dma_fd != -1)
-	{
-		NvBufferDestroy(dst_dma_fd);
-		dst_dma_fd = -1;
-	}
-	return;
-}
-
-void nvmpictx::initDstDmaBuffer()
-{
-	int ret=0;
-	NvBufferCreateParams input_params = {0};
-	
-	/* Create PitchLinear output buffer for transform. */
-	input_params.width = coded_width;
-	input_params.height = coded_height;
-	input_params.layout = NvBufferLayout_Pitch;
-	input_params.colorFormat = out_pixfmt==NV_PIX_NV12?NvBufferColorFormat_NV12: NvBufferColorFormat_YUV420;
-#ifdef WITH_NVUTILS
-	input_params.memType = NVBUF_MEM_SURFACE_ARRAY;
-	input_params.memtag = NvBufSurfaceTag_VIDEO_CONVERT;
-	
-	ret = NvBufSurf::NvAllocate(&input_params, 1, &dst_dma_fd);
-	if(ret != -1) ret = NvBufSurfaceFromFd(dst_dma_fd, (void**)(&(dst_dma_surface)));
-#else
-	input_params.payloadType = NvBufferPayload_SurfArray;
-	input_params.nvbuf_tag = NvBufferTag_VIDEO_DEC;
-	
-	ret = NvBufferCreateEx (&dst_dma_fd, &input_params);
-#endif
-	TEST_ERROR(ret == -1, "create dst_dmabuf failed", error);
-	
-	return;
-}
 
 void nvmpictx::initDecoderCapturePlane(v4l2_format &format)
 {
@@ -455,27 +412,14 @@ void nvmpictx::updateBufferTransformParams()
 
 void nvmpictx::deinitFramePool()
 {
-	mutex.lock();
-	while(!frame_pools.empty()) frame_pools.pop();
-	
-	for(int index=0;index<MAX_BUFFERS;index++)
-	{
-		delete[] bufptr_0[index];
-		delete[] bufptr_1[index];
-		delete[] bufptr_2[index];
-	}
-	mutex.unlock();
+	fPool.deinit();
 	return;
 }
 
 void nvmpictx::initFramePool()
 {
-	for(int index=0;index<MAX_BUFFERS;index++)
-	{
-		bufptr_0[index]=new unsigned char[frame_size[0]];//Y
-		bufptr_1[index]=new unsigned char[frame_size[1]];//UV or UU
-		bufptr_2[index]=new unsigned char[frame_size[2]];//VV
-	}
+	NvBufferColorFormat cFmt = out_pixfmt==NV_PIX_NV12?NvBufferColorFormat_NV12: NvBufferColorFormat_YUV420;
+	fPool.init(coded_width, coded_height, cFmt, MAX_BUFFERS);
 	return;
 }
 
@@ -536,7 +480,7 @@ void dec_capture_loop_fcn(void *arg)
 	struct v4l2_format v4l2Format;
 	struct v4l2_crop v4l2Crop;
 	struct v4l2_event v4l2Event;
-	int ret,buf_index=0;
+	int ret,bIndex=0;
 
     /* Need to wait for the first Resolution change event, so that
        the decoder knows the stream resolution and can allocate appropriate
@@ -608,12 +552,23 @@ void dec_capture_loop_fcn(void *arg)
 			
 			dec_buffer->planes[0].fd = ctx->dmaBufferFileDescriptor[v4l2_buf.index];
 			
+			bIndex = ctx->fPool.dqEmptyBuf();
+			
+			if(bIndex != -1)
+			{
 #ifdef WITH_NVUTILS
-			ret = NvBufSurfTransform(ctx->dmaBufferSurface[v4l2_buf.index], ctx->dst_dma_surface, &(ctx->transform_params));
+				ret = NvBufSurfTransform(ctx->dmaBufferSurface[v4l2_buf.index], ctx->fPool.dst_dma_surface[bIndex], &(ctx->transform_params));
 #else
-			ret = NvBufferTransform(dec_buffer->planes[0].fd, ctx->dst_dma_fd, &(ctx->transform_params));
+				ret = NvBufferTransform(dec_buffer->planes[0].fd, ctx->fPool.dst_dma_fd[bIndex], &(ctx->transform_params));
 #endif
-			TEST_ERROR(ret==-1, "Transform failed",ret);
+				TEST_ERROR(ret==-1, "Transform failed",ret);
+				ctx->timestamp[bIndex]= (v4l2_buf.timestamp.tv_usec % 1000000) + (v4l2_buf.timestamp.tv_sec * 1000000UL);
+				ctx->fPool.qFilledBuf(bIndex);
+			}
+			else
+			{
+				printf("No empty buffers available to transform");
+			}
 					
 #ifdef WITH_NVUTILS
 			ret=NvBufSurface2Raw(ctx->dst_dma_surface,0,0,ctx->frame_linesize[0],ctx->frame_height[0],ctx->bufptr_0[buf_index]);
@@ -626,14 +581,6 @@ void dec_capture_loop_fcn(void *arg)
 			if(ctx->out_pixfmt==NV_PIX_YUV420)
 				ret=NvBuffer2Raw(ctx->dst_dma_fd,2,ctx->frame_linesize[2],ctx->frame_height[2],ctx->bufptr_2[buf_index]);
 #endif
-			
-			ctx->mutex.lock();
-			ctx->frame_pools.push(buf_index);
-			ctx->timestamp[buf_index]= (v4l2_buf.timestamp.tv_usec % 1000000) + (v4l2_buf.timestamp.tv_sec * 1000000UL);
-			buf_index=(buf_index+1)%MAX_BUFFERS;
-			ctx->mutex.unlock();
-
-			ctx->has_frame_cv.notify_one();
 
 			v4l2_buf.m.planes[0].m.fd = ctx->dmaBufferFileDescriptor[v4l2_buf.index];
 			if (dec->capture_plane.qBuffer(v4l2_buf, NULL) < 0)
