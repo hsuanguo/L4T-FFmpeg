@@ -680,7 +680,7 @@ int nvmpi_decoder_get_frame(nvmpictx* ctx,nvFrame* frame,bool wait)
 int nvmpi_decoder_close(nvmpictx* ctx)
 {
 	ctx->eos=true;
-	
+	ctx->dec->capture_plane.setStreamStatus(false);
 	if (ctx->dec_capture_loop.joinable())
 	{
 		ctx->dec_capture_loop.join();
