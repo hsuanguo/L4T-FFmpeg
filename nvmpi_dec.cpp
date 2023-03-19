@@ -21,6 +21,154 @@
 
 using namespace std;
 
+struct NVMPI_framePool
+{
+	int _bufNumber = 0; //total number of allocated buffers
+	int *dst_dma_fd = NULL;
+#ifdef WITH_NVUTILS
+	NvBufSurface **dst_dma_surface = NULL;
+#endif
+	
+	std::mutex m_emptyBuf;
+	std::mutex m_filledBuf;
+	std::queue<int> emptyBuf; //list of buffers available to fill 
+	std::queue<int> filledBuf; //filled buffers to consume
+	
+	bool init(const int& imgW, const int& imgH, const NvBufferColorFormat& cFmt, const int& bufNumber);
+	void deinit();
+	
+	int dqEmptyBuf();
+	void qEmptyBuf(int fd);
+	
+	int dqFilledBuf();
+	void qFilledBuf(int fd);
+};
+
+bool NVMPI_framePool::init(const int& imgW, const int& imgH, const NvBufferColorFormat& cFmt, const int& bufNumber)
+{
+	if(bufNumber <= 0) return false; //TODO log msg //TODO check if it's already allocated and deinit first
+	
+	int ret=0;
+	_bufNumber = bufNumber;
+	dst_dma_fd = new int[_bufNumber];
+#ifdef WITH_NVUTILS
+	dst_dma_surface = new NvBufSurface*[_bufNumber];
+#endif
+	
+	NvBufferCreateParams input_params = {0};
+	/* Create PitchLinear output buffer for transform. */
+	input_params.width = imgW;
+	input_params.height = imgH;
+	input_params.layout = NvBufferLayout_Pitch;
+	input_params.colorFormat = cFmt;
+#ifdef WITH_NVUTILS
+	input_params.memType = NVBUF_MEM_SURFACE_ARRAY;
+	input_params.memtag = NvBufSurfaceTag_VIDEO_CONVERT;
+	
+	ret = NvBufSurf::NvAllocate(&input_params, _bufNumber, dst_dma_fd);
+	for (int index = 0; index < _bufNumber; index++)
+	{
+		ret = NvBufSurfaceFromFd(dst_dma_fd[index], (void**)(&(dst_dma_surface[index])));
+		TEST_ERROR(ret < 0, "Failed to get surface for buffer", ret);
+	}
+#else
+	input_params.payloadType = NvBufferPayload_SurfArray;
+	input_params.nvbuf_tag = NvBufferTag_VIDEO_DEC;
+	
+	ret = NvBufferCreateEx (&dst_dma_fd, &input_params);
+	for (int index = 0; index < _bufNumber; index++)
+	{
+		ret = NvBufferCreateEx(&(dst_dma_fd[index]), &input_params);
+		TEST_ERROR(ret < 0, "Failed to create buffers", ret);
+	}
+#endif
+	TEST_ERROR(ret == -1, "create dst_dmabuf failed", error);
+	
+	m_emptyBuf.lock();
+	for (int index = 0; index < _bufNumber; index++) emptyBuf.push(index);
+	m_emptyBuf.unlock();
+	
+	return true;
+}
+
+void NVMPI_framePool::deinit()
+{
+	m_emptyBuf.lock();
+	m_filledBuf.lock();
+	
+	int ret = 0;
+	int numBufPopped = 0;
+	while(!emptyBuf.empty()) {emptyBuf.pop(); numBufPopped++;}
+	while(!filledBuf.empty()) {filledBuf.pop(); numBufPopped++;}
+	
+	//TODO protection from this situation.
+	if(numBufPopped < _bufNumber) ERROR_MSG("FIXME! Trying to deinit mvmpi decoder framepool, but some buffers are missing. It can couse seg. fault if buffer still in use");
+	
+	for (int index = 0; index < _bufNumber; index++)
+	{
+		if (dst_dma_fd[index] != 0)
+		{	
+			ret = NvBufferDestroy(dst_dma_fd[index]);
+			TEST_ERROR(ret < 0, "Failed to Destroy NvBuffer", ret);
+		}
+	}
+	
+	delete[] dst_dma_fd;
+	delete[] dst_dma_surface;
+	
+	_bufNumber = 0;
+	dst_dma_fd = NULL;
+	dst_dma_surface = NULL;
+	
+	m_emptyBuf.unlock();
+	m_filledBuf.unlock();
+	return;
+}
+
+void NVMPI_framePool::qFilledBuf(int fd)
+{
+	m_filledBuf.lock();
+	emptyBuf.push(fd);
+	m_filledBuf.unlock();
+	return;
+}
+
+//TODO block and wait on mutex before reaching timeout or getting buffer
+int NVMPI_framePool::dqFilledBuf()
+{
+	int ret = -1;
+	m_filledBuf.lock();
+	if(!emptyBuf.empty())
+	{
+		ret = emptyBuf.front();
+		emptyBuf.pop();
+	}
+	m_filledBuf.unlock();
+	return ret;
+}
+
+void NVMPI_framePool::qEmptyBuf(int fd)
+{
+	m_emptyBuf.lock();
+	emptyBuf.push(fd);
+	m_emptyBuf.unlock();
+	return;
+}
+
+//TODO block and wait on mutex before reaching timeout or getting buffer
+int NVMPI_framePool::dqEmptyBuf()
+{
+	int ret = -1;
+	m_emptyBuf.lock();
+	if(!emptyBuf.empty())
+	{
+		ret = emptyBuf.front();
+		emptyBuf.pop();
+	}
+	m_emptyBuf.unlock();
+	return ret;
+}
+
 struct nvmpictx
 {
 	NvVideoDecoder *dec{nullptr};
