@@ -11,6 +11,9 @@
 #define NvBufferColorFormat_NV12_709_ER NVBUF_COLOR_FORMAT_NV12_709_ER
 #define NvBufferColorFormat_NV12_2020 NVBUF_COLOR_FORMAT_NV12_2020
 #define NvBufferColorFormat_YUV420 NVBUF_COLOR_FORMAT_YUV420
+//#define NvBufferColorFormat_ABGR32 NVBUF_COLOR_FORMAT_BGRA
+//NVBUF_COLOR_FORMAT_BGR - BGR-8-8-8 single plane. /nvbufsurface API only/
+//NVBUF_COLOR_FORMAT_B8_G8_R8 -  BGR- unsigned 8-bit multiplanar plane. /nvbufsurface API only/
 #define NvBufferLayout_Pitch NVBUF_LAYOUT_PITCH
 #define NvBufferLayout_BlockLinear NVBUF_LAYOUT_BLOCK_LINEAR
 #define NvBufferTransformParams NvBufSurfTransformParams

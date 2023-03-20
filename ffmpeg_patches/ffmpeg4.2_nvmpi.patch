@@ -1,5 +1,5 @@
 diff --git a/configure b/configure
-index 6a7a85c..5810ab5 100755
+index 16d9c78..3d0835c 100755
 --- a/configure
 +++ b/configure
 @@ -340,6 +340,7 @@ External library support:
@@ -184,10 +184,10 @@ index d2f9a39..04dc62b 100644
  
 diff --git a/libavcodec/nvmpi_dec.c b/libavcodec/nvmpi_dec.c
 new file mode 100644
-index 0000000..f82aa61
+index 0000000..cb49e40
 --- /dev/null
 +++ b/libavcodec/nvmpi_dec.c
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,172 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <sys/time.h>
@@ -211,6 +211,7 @@ index 0000000..f82aa61
 +	char eos_reached;
 +	nvmpictx* ctx;
 +	AVClass *av_class;
++	AVFrame *bufFrame;
 +} nvmpiDecodeContext;
 +
 +static nvCodingType nvmpi_get_codingtype(AVCodecContext *avctx)
@@ -231,7 +232,7 @@ index 0000000..f82aa61
 +
 +	nvmpiDecodeContext *nvmpi_context = avctx->priv_data;
 +	nvCodingType codectype=NV_VIDEO_CodingUnused;
-+
++	
 +	codectype =nvmpi_get_codingtype(avctx);
 +	if (codectype == NV_VIDEO_CodingUnused) {
 +		av_log(avctx, AV_LOG_ERROR, "Unknown codec type (%d).\n", avctx->codec_id);
@@ -247,10 +248,19 @@ index 0000000..f82aa61
 +		av_log(avctx, AV_LOG_ERROR, "Invalid Pix_FMT for NVMPI: Only YUV420P and YUVJ420P are supported\n");
 +		return AVERROR_INVALIDDATA;
 +	}
++	
++	nvmpi_context->bufFrame = av_frame_alloc();
++	if (ff_get_buffer(avctx, nvmpi_context->bufFrame, 0) < 0) {
++		av_frame_free(&(nvmpi_context->bufFrame));
++		nvmpi_context->bufFrame = NULL;
++		return AVERROR(ENOMEM);
++	}
 +
 +	nvmpi_context->ctx=nvmpi_create_decoder(codectype,NV_PIX_YUV420);
 +
 +	if(!nvmpi_context->ctx){
++		av_frame_free(&(nvmpi_context->bufFrame));
++		nvmpi_context->bufFrame = NULL;
 +		av_log(avctx, AV_LOG_ERROR, "Failed to nvmpi_create_decoder (code = %d).\n", AVERROR_EXTERNAL);
 +		return AVERROR_EXTERNAL;
 +	}
@@ -263,6 +273,11 @@ index 0000000..f82aa61
 +static int nvmpi_close(AVCodecContext *avctx){
 +
 +	nvmpiDecodeContext *nvmpi_context = avctx->priv_data;
++	if(nvmpi_context->bufFrame)
++	{
++		av_frame_free(&(nvmpi_context->bufFrame));
++		nvmpi_context->bufFrame = NULL;
++	}
 +	return nvmpi_decoder_close(nvmpi_context->ctx);
 +
 +}
@@ -273,10 +288,10 @@ index 0000000..f82aa61
 +
 +	nvmpiDecodeContext *nvmpi_context = avctx->priv_data;
 +	AVFrame *frame = data;
++	AVFrame *bufFrame = nvmpi_context->bufFrame;
 +	nvFrame _nvframe={0};
 +	nvPacket packet;
-+	uint8_t* ptrs[3];
-+	int res,linesize[3];
++	int res;
 +
 +	if(avpkt->size){
 +		packet.payload_size=avpkt->size;
@@ -286,39 +301,25 @@ index 0000000..f82aa61
 +		res=nvmpi_decoder_put_packet(nvmpi_context->ctx,&packet);
 +	}
 +
++	_nvframe.payload[0] = bufFrame->data[0];
++	_nvframe.payload[1] = bufFrame->data[1];
++	_nvframe.payload[2] = bufFrame->data[2];
++
 +	res=nvmpi_decoder_get_frame(nvmpi_context->ctx,&_nvframe,avctx->flags & AV_CODEC_FLAG_LOW_DELAY);
 +
 +	if(res<0)
 +		return avpkt->size;
 +
-+	if (ff_get_buffer(avctx, frame, 0) < 0) {
-+		return AVERROR(ENOMEM);
-+
-+	}
-+
-+	linesize[0]=_nvframe.linesize[0];
-+	linesize[1]=_nvframe.linesize[1];
-+	linesize[2]=_nvframe.linesize[2];
-+
-+	ptrs[0]=_nvframe.payload[0];
-+	ptrs[1]=_nvframe.payload[1];
-+	ptrs[2]=_nvframe.payload[2];
-+
-+	av_image_copy(frame->data, frame->linesize, (const uint8_t **) ptrs, linesize, avctx->pix_fmt, _nvframe.width,_nvframe.height);
-+
-+	frame->width=_nvframe.width;
-+	frame->height=_nvframe.height;
-+
-+	frame->format=AV_PIX_FMT_YUV420P;
-+	frame->pts=_nvframe.timestamp;
-+	frame->pkt_dts = AV_NOPTS_VALUE;
-+
-+	avctx->coded_width=_nvframe.width;
-+	avctx->coded_height=_nvframe.height;
-+	avctx->width=_nvframe.width;
-+	avctx->height=_nvframe.height;
-+
++	bufFrame->format=AV_PIX_FMT_YUV420P;
++	bufFrame->pts=_nvframe.timestamp;
++	bufFrame->pkt_dts = AV_NOPTS_VALUE;
++	av_frame_move_ref(frame, bufFrame);
++	
 +	*got_frame = 1;
++	
++	if (ff_get_buffer(avctx, bufFrame, 0) < 0) {
++		return AVERROR(ENOMEM);
++	}
 +
 +	return avpkt->size;
 +}
