@@ -23,6 +23,7 @@ typedef struct {
 	int level;
 	int rc;
 	int preset;
+	int encoder_flushing;
 }nvmpiEncodeContext;
 
 static av_cold int nvmpi_encode_init(AVCodecContext *avctx){
@@ -130,13 +131,14 @@ static av_cold int nvmpi_encode_init(AVCodecContext *avctx){
 	return 0;
 }
 
-
-static int nvmpi_encode_frame(AVCodecContext *avctx, AVPacket *pkt,const AVFrame *frame, int *got_packet){
-
+static int ff_nvmpi_send_frame(AVCodecContext *avctx,const AVFrame *frame)
+{
 	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
 	nvFrame _nvframe={0};
-	nvPacket packet={0};
 	int res;
+
+	if (nvmpi_context->encoder_flushing)
+		return AVERROR_EOF;
 
 	if(frame){
 
@@ -159,11 +161,25 @@ static int nvmpi_encode_frame(AVCodecContext *avctx, AVPacket *pkt,const AVFrame
 		if(res<0)
 			return res;
 	}
+	else
+		nvmpi_context->encoder_flushing = 1;
 
+	return 0;
+}
+
+static int ff_nvmpi_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
+{
+	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
+	nvPacket packet={0};
+	int res;
 
 	if(nvmpi_encoder_get_packet(nvmpi_context->ctx,&packet)<0)
-		return 0;
+	{
+		if (nvmpi_context->encoder_flushing)
+			return AVERROR_EOF; //we don't really wait so we may miss some last packets
 
+		return AVERROR(EAGAIN); //nvmpi get_packet returns -1 if no packets are pending
+	}
 #if LIBAVCODEC_VERSION_MAJOR >= 60
 	if((res = ff_get_encode_buffer(avctx, pkt, packet.payload_size, 0)))
 		return res;
@@ -177,6 +193,26 @@ static int nvmpi_encode_frame(AVCodecContext *avctx, AVPacket *pkt,const AVFrame
 	if(packet.flags& AV_PKT_FLAG_KEY)
 		pkt->flags = AV_PKT_FLAG_KEY;
 
+	return 0;
+}
+
+static int ff_nvmpi_encode_frame(AVCodecContext *avctx, AVPacket *pkt,const AVFrame *frame, int *got_packet)
+{
+	int res;
+	*got_packet = 0;
+
+	res = ff_nvmpi_send_frame(avctx, frame);
+
+	if(res < 0)
+		return res;
+
+	res = ff_nvmpi_receive_packet(avctx, pkt);
+
+	if (res == AVERROR(EAGAIN) || res == AVERROR_EOF)
+		return 0;
+
+	if (res < 0)
+		return res;
 
 	*got_packet = 1;
 
@@ -263,6 +299,9 @@ static const AVOption options[] = {
 	};
 
 
+//TODO add decoupled api support for ffmpeg 6.0
+/*.p.send_frame     = ff_nvmpi_send_frame, \ */
+/*FF_CODEC_RECEIVE_PACKET_CB(ff_nvmpi_receive_packet), \ */
 #if LIBAVCODEC_VERSION_MAJOR >= 60
 	#define NVMPI_ENC(NAME, LONGNAME, CODEC) \
 		NVMPI_ENC_CLASS(NAME) \
@@ -274,7 +313,7 @@ static const AVOption options[] = {
 			.priv_data_size = sizeof(nvmpiEncodeContext), \
 			.p.priv_class     = &nvmpi_ ## NAME ##_enc_class, \
 			.init           = nvmpi_encode_init, \
-			FF_CODEC_ENCODE_CB(nvmpi_encode_frame), \
+			FF_CODEC_ENCODE_CB(ff_nvmpi_encode_frame), \
 			.close          = nvmpi_encode_close, \
 			.p.pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE },\
 			.p.capabilities   = AV_CODEC_CAP_HARDWARE | AV_CODEC_CAP_DELAY, \
@@ -292,7 +331,9 @@ static const AVOption options[] = {
 			.priv_data_size = sizeof(nvmpiEncodeContext), \
 			.priv_class     = &nvmpi_ ## NAME ##_enc_class, \
 			.init           = nvmpi_encode_init, \
-			.encode2        = nvmpi_encode_frame, \
+			.send_frame     = ff_nvmpi_send_frame, \
+			.receive_packet = ff_nvmpi_receive_packet, \
+			.encode2        = ff_nvmpi_encode_frame, \
 			.close          = nvmpi_encode_close, \
 			.pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE },\
 			.capabilities   = AV_CODEC_CAP_HARDWARE | AV_CODEC_CAP_DELAY, \

@@ -486,6 +486,11 @@ void transFormWorker::start(nvmpictx* ctx)
 	_workerThr = std::thread(&transFormWorker::workerFnc,this);
 	return;
 }
+
+void transFormWorker::workerFnc()
+{
+	
+}
 */
 
 void dec_capture_loop_fcn(void *arg)
