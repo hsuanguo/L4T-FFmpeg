@@ -572,7 +572,7 @@ void dec_capture_loop_fcn(void *arg)
 			bIndex = ctx->fPool.dqEmptyBuf();
 			
 			if(bIndex != -1)
-			{	
+			{
 #ifdef WITH_NVUTILS
 				ret = NvBufSurfTransform(ctx->dmaBufferSurface[v4l2_buf.index], ctx->fPool.dst_dma_surface[bIndex], &(ctx->transform_params));
 #else
@@ -585,7 +585,7 @@ void dec_capture_loop_fcn(void *arg)
 			}
 			else
 			{
-				printf("No empty buffers available to transform\n");
+				printf("No empty buffers available to transform, Frame skipped!\n");
 			}
 
 			v4l2_buf.m.planes[0].m.fd = ctx->dmaBufferFileDescriptor[v4l2_buf.index];
@@ -685,6 +685,8 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
 	if (ctx->index < (int)ctx->dec->output_plane.getNumBuffers())
 	{
 		nvBuffer = ctx->dec->output_plane.getNthBuffer(ctx->index);
+		v4l2_buf.index = ctx->index;
+		ctx->index++;
 	}
 	else
 	{
@@ -698,13 +700,6 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
 
 	memcpy(nvBuffer->planes[0].data,packet->payload,packet->payload_size);
 	nvBuffer->planes[0].bytesused=packet->payload_size;
-
-	if (ctx->index < ctx->dec->output_plane.getNumBuffers())
-	{
-		v4l2_buf.index = ctx->index ;
-		v4l2_buf.m.planes = planes;
-	}
-
 	v4l2_buf.m.planes[0].bytesused = nvBuffer->planes[0].bytesused;
 
 	v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -715,11 +710,9 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
 	if (ret < 0)
 	{
 		std::cout << "Error Qing buffer at output plane" << std::endl;
+		ctx->index--;
 		return false;
 	}
-
-	if (ctx->index < ctx->dec->output_plane.getNumBuffers())
-		ctx->index++;
 
 	if (v4l2_buf.m.planes[0].bytesused == 0)
 	{
