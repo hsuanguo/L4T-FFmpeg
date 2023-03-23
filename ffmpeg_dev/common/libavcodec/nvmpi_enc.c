@@ -140,8 +140,8 @@ static int ff_nvmpi_send_frame(AVCodecContext *avctx,const AVFrame *frame)
 	if (nvmpi_context->encoder_flushing)
 		return AVERROR_EOF;
 
-	if(frame){
-
+	if(frame)
+	{
 		_nvframe.payload[0]=frame->data[0];
 		_nvframe.payload[1]=frame->data[1];
 		_nvframe.payload[2]=frame->data[2];
@@ -162,7 +162,10 @@ static int ff_nvmpi_send_frame(AVCodecContext *avctx,const AVFrame *frame)
 			return res;
 	}
 	else
+	{
 		nvmpi_context->encoder_flushing = 1;
+		nvmpi_encoder_put_frame(nvmpi_context->ctx,NULL);
+	}
 
 	return 0;
 }
@@ -172,12 +175,12 @@ static int ff_nvmpi_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
 	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
 	nvPacket packet={0};
 	int res;
-
-	if(nvmpi_encoder_get_packet(nvmpi_context->ctx,&packet)<0)
+	
+	res = nvmpi_encoder_get_packet(nvmpi_context->ctx,&packet);
+	if(res<0)
 	{
-		if (nvmpi_context->encoder_flushing)
-			return AVERROR_EOF; //we don't really wait so we may miss some last packets
-
+		//If the encoder is in flushing state, then get_packet will block and return either a packet or EOF
+		if(nvmpi_context->encoder_flushing) return AVERROR_EOF;
 		return AVERROR(EAGAIN); //nvmpi get_packet returns -1 if no packets are pending
 	}
 #if LIBAVCODEC_VERSION_MAJOR >= 60
@@ -219,8 +222,8 @@ static int ff_nvmpi_encode_frame(AVCodecContext *avctx, AVPacket *pkt,const AVFr
 	return 0;
 }
 
-static av_cold int nvmpi_encode_close(AVCodecContext *avctx){
-
+static av_cold int nvmpi_encode_close(AVCodecContext *avctx)
+{
 	nvmpiEncodeContext *nvmpi_context = avctx->priv_data;
 	nvmpi_encoder_close(nvmpi_context->ctx);
 

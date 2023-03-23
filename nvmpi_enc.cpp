@@ -18,7 +18,8 @@
 
 using namespace std;
 
-struct nvmpictx{
+struct nvmpictx
+{
 	NvVideoEncoder *enc;
 	int index;
 	std::queue<int> * packet_pools;
@@ -51,6 +52,9 @@ struct nvmpictx{
 	bool packets_keyflag[MAX_BUFFERS];
 	uint64_t timestamp[MAX_BUFFERS];
 	int buf_index;
+	
+	bool capPlaneGotEOS;
+	bool flushing;
 };
 
 
@@ -68,15 +72,16 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 
 	if (buffer->planes[0].bytesused == 0)
 	{
+		ctx->capPlaneGotEOS = true;
 		cout << "Got 0 size buffer in capture \n";
 		return false;
 	}
 
-	if(ctx->packets_buf_size < buffer->planes[0].bytesused){
-
+	if(ctx->packets_buf_size < buffer->planes[0].bytesused)
+	{
 		ctx->packets_buf_size=buffer->planes[0].bytesused;
-
-		for(int index=0;index< ctx->packets_num;index++){
+		for(int index=0;index< ctx->packets_num;index++)
+		{
 			delete[] ctx->packets[index];
 			ctx->packets[index]=new unsigned char[ctx->packets_buf_size];	
 		}
@@ -91,9 +96,12 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 
 	v4l2_ctrl_videoenc_outputbuf_metadata enc_metadata;
 	ctx->enc->getMetadata(v4l2_buf->index, enc_metadata);
-	if(enc_metadata.KeyFrame){
+	if(enc_metadata.KeyFrame)
+	{
 		ctx->packets_keyflag[ctx->buf_index]=true;
-	}else{
+	}
+	else
+	{
 		ctx->packets_keyflag[ctx->buf_index]=false;
 	}
 
@@ -101,7 +109,6 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 
 	if (ctx->enc->capture_plane.qBuffer(*v4l2_buf, NULL) < 0)
 	{
-
 		ERROR_MSG("Error while Qing buffer at capture plane");
 		return false;
 	}
@@ -110,7 +117,8 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 }
 
 
-nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param){
+nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
+{
 
 	int ret;
 	log_level = LOG_LEVEL_INFO;
@@ -134,8 +142,11 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param){
 	ctx->num_b_frames=param->max_b_frames;
 	ctx->num_reference_frames=param->refs;
 	ctx->insert_sps_pps_at_idr=(param->insert_spspps_idr==1)?true:false;
+	ctx->capPlaneGotEOS = false;
+	ctx->flushing = false;
 
-	switch(param->profile){
+	switch(param->profile)
+	{
 		case 77://FF_PROFILE_H264_MAIN
 			ctx->profile=V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
 			break;
@@ -151,7 +162,8 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param){
 			break;
 	}
 
-	switch(param->level){
+	switch(param->level)
+	{
 		case 10:
 			ctx->level=V4L2_MPEG_VIDEO_H264_LEVEL_1_0;
 			break;
@@ -372,6 +384,8 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param){
 
 int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
 {
+	if(ctx->flushing) return -2;
+	
 	int ret;
 	struct v4l2_buffer v4l2_buf;
 	struct v4l2_plane planes[MAX_PLANES];
@@ -401,16 +415,26 @@ int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
 		}
 	}
 	
-	nvBuffer->planes[0].bytesused=nvBuffer->planes[0].fmt.stride * nvBuffer->planes[0].fmt.height;
-	nvBuffer->planes[1].bytesused=nvBuffer->planes[1].fmt.stride * nvBuffer->planes[1].fmt.height;
-	nvBuffer->planes[2].bytesused=nvBuffer->planes[2].fmt.stride * nvBuffer->planes[2].fmt.height;
-	memcpy(nvBuffer->planes[0].data, frame->payload[0], nvBuffer->planes[0].bytesused);
-	memcpy(nvBuffer->planes[1].data, frame->payload[1], nvBuffer->planes[1].bytesused);
-	memcpy(nvBuffer->planes[2].data, frame->payload[2], nvBuffer->planes[2].bytesused);
+	//send EOS and flush
+	if(frame)
+	{
+		nvBuffer->planes[0].bytesused=nvBuffer->planes[0].fmt.stride * nvBuffer->planes[0].fmt.height;
+		nvBuffer->planes[1].bytesused=nvBuffer->planes[1].fmt.stride * nvBuffer->planes[1].fmt.height;
+		nvBuffer->planes[2].bytesused=nvBuffer->planes[2].fmt.stride * nvBuffer->planes[2].fmt.height;
+		memcpy(nvBuffer->planes[0].data, frame->payload[0], nvBuffer->planes[0].bytesused);
+		memcpy(nvBuffer->planes[1].data, frame->payload[1], nvBuffer->planes[1].bytesused);
+		memcpy(nvBuffer->planes[2].data, frame->payload[2], nvBuffer->planes[2].bytesused);
 
-	v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
-	v4l2_buf.timestamp.tv_usec = frame->timestamp % 1000000;
-	v4l2_buf.timestamp.tv_sec = frame->timestamp / 1000000;
+		v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
+		v4l2_buf.timestamp.tv_usec = frame->timestamp % 1000000;
+		v4l2_buf.timestamp.tv_sec = frame->timestamp / 1000000;
+	}
+	else
+	{
+		ctx->flushing = true;
+		v4l2_buf.m.planes[0].m.userptr = 0;
+		v4l2_buf.m.planes[0].bytesused = v4l2_buf.m.planes[1].bytesused = v4l2_buf.m.planes[2].bytesused = 0;
+	}
 
 	ret = ctx->enc->output_plane.qBuffer(v4l2_buf, NULL);
 	TEST_ERROR(ret < 0, "Error while queueing buffer at output plane", ret);
@@ -423,13 +447,21 @@ int nvmpi_encoder_get_packet(nvmpictx* ctx,nvPacket* packet)
 	int ret,packet_index;
 
 	if(ctx->packet_pools->empty())
-		return -1;
+	{
+		if(!ctx->flushing) return -1;
+		
+		while(!ctx->capPlaneGotEOS && ctx->packet_pools->empty())
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		if(ctx->packet_pools->empty()) return -2;
+	}
 
 	packet_index= ctx->packet_pools->front();
 
 	auto ts = ctx->timestamp[packet_index];
 	auto size = ctx->packets_size[packet_index];
-	if((ts > 0) && (size == 0)) // Old packet, but 0-0 skip!
+	if((ts > 0) && (size == 0)) // Old packet, but 0-0 skip! wtf
 	{
 		return -1;
 	}
