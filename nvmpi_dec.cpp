@@ -56,7 +56,8 @@ bool NVMPI_framePool::init(const int& imgW, const int& imgH, const NvBufferColor
 	dst_dma_surface = new NvBufSurface*[_bufNumber];
 #endif
 	
-	NvBufferCreateParams input_params = {0};
+	NvBufferCreateParams input_params;
+	memset(&input_params, 0, sizeof(input_params));
 	/* Create PitchLinear output buffer for transform. */
 	input_params.width = imgW;
 	input_params.height = imgH;
@@ -195,7 +196,7 @@ struct nvmpictx
 	unsigned int decoder_pixfmt{0};
 	std::thread dec_capture_loop;
 	
-	NVMPI_framePool fPool;
+	NVMPI_framePool* fPool;
 	
 	//frame size params
 	unsigned int frame_size[MAX_NUM_PLANES];
@@ -272,7 +273,8 @@ void nvmpictx::initDecoderCapturePlane(v4l2_format &format)
 {
 	int ret=0;
 	int32_t minimumDecoderCaptureBuffers;
-	NvBufferCreateParams cParams = {0};
+	NvBufferCreateParams cParams;
+	memset(&cParams, 0, sizeof(cParams));
 	
 	ret=dec->setCapturePlaneFormat(format.fmt.pix_mp.pixelformat,format.fmt.pix_mp.width,format.fmt.pix_mp.height);
 	TEST_ERROR(ret < 0, "Error in setting decoder capture plane format", ret);
@@ -360,11 +362,11 @@ void nvmpictx::updateFrameSizeParams()
 #ifdef WITH_NVUTILS
 	NvBufSurfacePlaneParams parm;
 	NvBufSurfaceParams dst_dma_surface_params;
-	dst_dma_surface_params = fPool.dst_dma_surface[0]->surfaceList[0];
+	dst_dma_surface_params = fPool->dst_dma_surface[0]->surfaceList[0];
 	parm = dst_dma_surface_params.planeParams;
 #else
 	NvBufferParams parm;
-	int ret = NvBufferGetParams(fPool.dst_dma_fd[0], &parm);
+	int ret = NvBufferGetParams(fPool->dst_dma_fd[0], &parm);
 	TEST_ERROR(ret < 0, "Failed to get dst dma buf params", ret);
 #endif
 
@@ -409,14 +411,14 @@ void nvmpictx::updateBufferTransformParams()
 
 void nvmpictx::deinitFramePool()
 {
-	fPool.deinit();
+	fPool->deinit();
 	return;
 }
 
 void nvmpictx::initFramePool()
 {
 	NvBufferColorFormat cFmt = out_pixfmt==NV_PIX_NV12?NvBufferColorFormat_NV12: NvBufferColorFormat_YUV420;
-	fPool.init(coded_width, coded_height, cFmt, MAX_BUFFERS);
+	fPool->init(coded_width, coded_height, cFmt, MAX_BUFFERS);
 	return;
 }
 
@@ -574,19 +576,19 @@ void dec_capture_loop_fcn(void *arg)
 			
 			dec_buffer->planes[0].fd = ctx->dmaBufferFileDescriptor[v4l2_buf.index];
 			
-			bIndex = ctx->fPool.dqEmptyBuf();
+			bIndex = ctx->fPool->dqEmptyBuf();
 			
 			if(bIndex != -1)
 			{
 #ifdef WITH_NVUTILS
-				ret = NvBufSurfTransform(ctx->dmaBufferSurface[v4l2_buf.index], ctx->fPool.dst_dma_surface[bIndex], &(ctx->transform_params));
+				ret = NvBufSurfTransform(ctx->dmaBufferSurface[v4l2_buf.index], ctx->fPool->dst_dma_surface[bIndex], &(ctx->transform_params));
 #else
-				ret = NvBufferTransform(dec_buffer->planes[0].fd, ctx->fPool.dst_dma_fd[bIndex], &(ctx->transform_params));
+				ret = NvBufferTransform(dec_buffer->planes[0].fd, ctx->fPool->dst_dma_fd[bIndex], &(ctx->transform_params));
 #endif
 				TEST_ERROR(ret==-1, "Transform failed",ret);
-				ctx->fPool.timestamp[bIndex] = (v4l2_buf.timestamp.tv_usec % 1000000) + (v4l2_buf.timestamp.tv_sec * 1000000UL);
+				ctx->fPool->timestamp[bIndex] = (v4l2_buf.timestamp.tv_usec % 1000000) + (v4l2_buf.timestamp.tv_sec * 1000000UL);
 				
-				ctx->fPool.qFilledBuf(bIndex);
+				ctx->fPool->qFilledBuf(bIndex);
 			}
 			else
 			{
@@ -614,7 +616,7 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 	int ret;
 	log_level = LOG_LEVEL_INFO;
 
-	nvmpictx* ctx=new nvmpictx;
+	nvmpictx* ctx=new nvmpictx();
 
 	ctx->dec = NvVideoDecoder::createVideoDecoder("dec0");
 	TEST_ERROR(!ctx->dec, "Could not create decoder",ret);
@@ -664,6 +666,7 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 	TEST_ERROR(ret < 0, "Error in output plane stream on", ret);
 
 	ctx->out_pixfmt=pixFormat;
+	ctx->fPool = new NVMPI_framePool();
 	ctx->eos=false;
 	ctx->index=0;
 	ctx->frame_size[0]=0;
@@ -731,28 +734,30 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
 int nvmpi_decoder_get_frame(nvmpictx* ctx,nvFrame* frame,bool wait)
 {
 	int ret;
-	int bIndex = ctx->fPool.dqFilledBuf();
+	int bIndex = ctx->fPool->dqFilledBuf();
 	if(bIndex<0) return -1;
 	
 #ifdef WITH_NVUTILS
-	NvBufSurface *dSurf = ctx->fPool.dst_dma_surface[bIndex];
+	NvBufSurface *dSurf = ctx->fPool->dst_dma_surface[bIndex];
 	ret=NvBufSurface2Raw(dSurf,0,0,ctx->frame_linesize[0],ctx->frame_height[0],frame->payload[0]);
 	ret=NvBufSurface2Raw(dSurf,0,1,ctx->frame_linesize[1],ctx->frame_height[1],frame->payload[1]);
 	if(ctx->out_pixfmt==NV_PIX_YUV420)
 		ret=NvBufSurface2Raw(dSurf,0,2,ctx->frame_linesize[2],ctx->frame_height[2],frame->payload[2]);
 #else
-	int dFd = ctx->fPool.dst_dma_fd[bIndex];
+	int dFd = ctx->fPool->dst_dma_fd[bIndex];
 	ret=NvBuffer2Raw(dFd,0,ctx->frame_linesize[0],ctx->frame_height[0],frame->payload[0]);
 	ret=NvBuffer2Raw(dFd,1,ctx->frame_linesize[1],ctx->frame_height[1],frame->payload[1]);
 	if(ctx->out_pixfmt==NV_PIX_YUV420)
 		ret=NvBuffer2Raw(dFd,2,ctx->frame_linesize[2],ctx->frame_height[2],frame->payload[2]);
 #endif
 	
-	frame->timestamp=ctx->fPool.timestamp[bIndex];
-	//return buffer to pool
-	ctx->fPool.qEmptyBuf(bIndex);
+	//TODO handle NvBuffer2Raw fails
 	
-	return 0;
+	frame->timestamp=ctx->fPool->timestamp[bIndex];
+	//return buffer to pool
+	ctx->fPool->qEmptyBuf(bIndex);
+	
+	return ret;
 }
 
 int nvmpi_decoder_close(nvmpictx* ctx)

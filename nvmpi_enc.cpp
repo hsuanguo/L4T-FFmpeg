@@ -6,8 +6,8 @@
 #include <thread>
 #include <unistd.h>
 #include <queue>
+#include <mutex>
 
-#define CHUNK_SIZE 2*1024*1024
 #define MAX_BUFFERS 32
 #define TEST_ERROR(condition, message, errorCode)    \
 	if (condition)                               \
@@ -15,14 +15,76 @@
 	std::cout<< message;                         \
 }
 
-
 using namespace std;
+
+template <typename T>
+struct NVMPI_pktPool
+{	
+	std::mutex m_emptyBuf;
+	std::mutex m_filledBuf;
+	std::queue<T> emptyBuf; //list of buffers available to fill 
+	std::queue<T> filledBuf; //filled buffers to consume
+	
+	T dqEmptyBuf();
+	void qEmptyBuf(T buf);
+	
+	T dqFilledBuf();
+	void qFilledBuf(T buf);
+	
+	//NVMPI_pktPool() {}
+	//~NVMPI_pktPool();
+};
+
+template<typename T>
+T NVMPI_pktPool<T>::dqEmptyBuf()
+{
+	T buf = NULL;
+	m_emptyBuf.lock();
+	if(!emptyBuf.empty())
+	{
+		buf = emptyBuf.front();
+		emptyBuf.pop();
+	}
+	m_emptyBuf.unlock();
+	return buf;
+}
+
+template<typename T>
+T NVMPI_pktPool<T>::dqFilledBuf()
+{
+	T buf = NULL;
+	m_filledBuf.lock();
+	if(!filledBuf.empty())
+	{
+		buf = filledBuf.front();
+		filledBuf.pop();
+	}
+	m_filledBuf.unlock();
+	return buf;
+}
+
+template<typename T>
+void NVMPI_pktPool<T>::qEmptyBuf(T buf)
+{
+	m_emptyBuf.lock();
+	emptyBuf.push(buf);
+	m_emptyBuf.unlock();
+	return;
+}
+
+template<typename T>
+void NVMPI_pktPool<T>::qFilledBuf(T buf)
+{
+	m_filledBuf.lock();
+	filledBuf.push(buf);
+	m_filledBuf.unlock();
+	return;
+}
 
 struct nvmpictx
 {
 	NvVideoEncoder *enc;
-	int index;
-	std::queue<int> * packet_pools;
+	uint32_t index;
 	uint32_t width;
 	uint32_t height;
 	uint32_t profile;
@@ -44,25 +106,22 @@ struct nvmpictx
 	uint32_t num_b_frames;
 	uint32_t num_reference_frames;
 	bool insert_sps_pps_at_idr;
+	bool max_perf; //enable max performance mode
 
-	uint32_t packets_buf_size;
+	//int output_plane_fd[32]; //TODO 
 	uint32_t packets_num;
-	unsigned char * packets[MAX_BUFFERS];
-	uint32_t packets_size[MAX_BUFFERS];
-	bool packets_keyflag[MAX_BUFFERS];
-	uint64_t timestamp[MAX_BUFFERS];
-	int buf_index;
+	
+	bool blocking_mode;
 	
 	bool capPlaneGotEOS;
 	bool flushing;
+	NVMPI_pktPool<nvPacket*>* pktPool;
 };
 
 
-static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBuffer * buffer, NvBuffer * shared_buffer, void *arg){
-
-	nvmpictx *ctx = (nvmpictx *) arg;
-	NvVideoEncoder *enc = ctx->enc;
-	//uint32_t frame_num = ctx->enc->capture_plane.getTotalDequeuedBuffers() - 1;
+static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBuffer * buffer, NvBuffer * shared_buffer __attribute__((unused)), void *arg)
+{
+	nvmpictx *ctx = (nvmpictx*)arg;
 
 	if (v4l2_buf == NULL)
 	{
@@ -76,39 +135,31 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 		cout << "Got 0 size buffer in capture \n";
 		return false;
 	}
-
-	if(ctx->packets_buf_size < buffer->planes[0].bytesused)
-	{
-		ctx->packets_buf_size=buffer->planes[0].bytesused;
-		for(int index=0;index< ctx->packets_num;index++)
-		{
-			delete[] ctx->packets[index];
-			ctx->packets[index]=new unsigned char[ctx->packets_buf_size];	
-		}
-	}
-
-	ctx->packets_size[ctx->buf_index]=buffer->planes[0].bytesused;
-	memcpy(ctx->packets[ctx->buf_index],buffer->planes[0].data,buffer->planes[0].bytesused);
-
-	ctx->timestamp[ctx->buf_index] = (v4l2_buf->timestamp.tv_usec % 1000000) + (v4l2_buf->timestamp.tv_sec * 1000000UL);
-
-	ctx->packet_pools->push(ctx->buf_index);
-
+	
 	v4l2_ctrl_videoenc_outputbuf_metadata enc_metadata;
 	ctx->enc->getMetadata(v4l2_buf->index, enc_metadata);
-	if(enc_metadata.KeyFrame)
+	
+	//nvPacket.payload --> AVPacket->data
+	//nvPacket.privData --> AVPacket
+	nvPacket* pkt = ctx->pktPool->dqEmptyBuf();
+	if(!pkt)
 	{
-		ctx->packets_keyflag[ctx->buf_index]=true;
+		//TODO wait for user to read buffer. make send_frame return AVERROR(EAGAIN) until avcodec_receive_packet() is called
+		printf("[W]: EAGAIN. User must read output. nvmpi encoder packet memory pool is empty! Packet will be dropped. There may be artifacts in the output video.\n");
 	}
 	else
 	{
-		ctx->packets_keyflag[ctx->buf_index]=false;
+		pkt->pts = (v4l2_buf->timestamp.tv_usec % 1000000) + (v4l2_buf->timestamp.tv_sec * 1000000UL);
+		pkt->flags|= 0x0001;//AV_PKT_FLAG_KEY 0x0001
+		pkt->payload_size = buffer->planes[0].bytesused;
+		memcpy(pkt->payload, buffer->planes[0].data, pkt->payload_size);
+		
+		ctx->pktPool->qFilledBuf(pkt);
 	}
-
-	ctx->buf_index=(ctx->buf_index+1)%ctx->packets_num;	
-
+	
 	if (ctx->enc->capture_plane.qBuffer(*v4l2_buf, NULL) < 0)
 	{
+		//TODO error handling
 		ERROR_MSG("Error while Qing buffer at capture plane");
 		return false;
 	}
@@ -116,12 +167,91 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 	return true;
 }
 
+/*
+static int setup_output_dmabuf(nvmpictx *ctx, uint32_t num_buffers )
+{
+    int ret=0;
+    NvBufSurf::NvCommonAllocateParams cParams;
+    int fd;
+    ret = ctx->enc->output_plane.reqbufs(V4L2_MEMORY_DMABUF,num_buffers);
+    if(ret)
+    {
+        cerr << "reqbufs failed for output plane V4L2_MEMORY_DMABUF" << endl;
+        return ret;
+    }
+    for (uint32_t i = 0; i < ctx->enc->output_plane.getNumBuffers(); i++)
+    {
+        cParams.width = ctx->width;
+        cParams.height = ctx->height;
+        cParams.layout = NVBUF_LAYOUT_PITCH;
+        
+        switch (ctx->cs)
+        {
+            case V4L2_COLORSPACE_REC709:
+                cParams.colorFormat = ctx->enable_extended_colorformat ?
+                    NVBUF_COLOR_FORMAT_YUV420_709_ER : NVBUF_COLOR_FORMAT_YUV420_709;
+                break;
+            case V4L2_COLORSPACE_SMPTE170M:
+            default:
+                cParams.colorFormat = ctx->enable_extended_colorformat ?
+                    NVBUF_COLOR_FORMAT_YUV420_ER : NVBUF_COLOR_FORMAT_YUV420;
+        }
+        if (ctx->is_semiplanar)
+        {
+            cParams.colorFormat = NVBUF_COLOR_FORMAT_NV12;
+        }
+        if (ctx->encoder_pixfmt == V4L2_PIX_FMT_H264)
+        {
+            if (ctx->enableLossless)
+            {
+                if (ctx->is_semiplanar)
+                    cParams.colorFormat = NVBUF_COLOR_FORMAT_NV24;
+                else
+                    cParams.colorFormat = NVBUF_COLOR_FORMAT_YUV444;
+            }
+        }
+        
+        
+        else if (ctx->encoder_pixfmt == V4L2_PIX_FMT_H265)
+        {
+            if (ctx->chroma_format_idc == 3)
+            {
+                if (ctx->is_semiplanar)
+                    cParams.colorFormat = NVBUF_COLOR_FORMAT_NV24;
+                else
+                    cParams.colorFormat = NVBUF_COLOR_FORMAT_YUV444;
+
+                if (ctx->bit_depth == 10)
+                    cParams.colorFormat = NVBUF_COLOR_FORMAT_NV24_10LE;
+            }
+            if (ctx->profile == V4L2_MPEG_VIDEO_H265_PROFILE_MAIN10 && (ctx->bit_depth == 10))
+            {
+                cParams.colorFormat = NVBUF_COLOR_FORMAT_NV12_10LE;
+            }
+        }
+        
+        cParams.colorFormat = NVBUF_COLOR_FORMAT_YUV420;
+        cParams.memtag = NvBufSurfaceTag_VIDEO_ENC;
+        cParams.memType = NVBUF_MEM_SURFACE_ARRAY;
+        // Create output plane fd for DMABUF io-mode
+        ret = NvBufSurf::NvAllocate(&cParams, 1, &fd);
+        if(ret < 0)
+        {
+            cerr << "Failed to create NvBuffer" << endl;
+            return ret;
+        }
+        ctx->output_plane_fd[i]=fd;
+    }
+    return ret;
+}
+*/
+
 
 nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 {
-
 	int ret;
 	log_level = LOG_LEVEL_INFO;
+	//log_level = LOG_LEVEL_DEBUG;
 	nvmpictx *ctx=new nvmpictx;
 	ctx->index=0;
 	ctx->width=param->width;
@@ -133,8 +263,7 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	ctx->fps_n = param->fps_n;
 	ctx->fps_d = param->fps_d;
 	ctx->iframe_interval = param->iframe_interval;
-	ctx->packet_pools=new std::queue<int>;
-	ctx->buf_index=0;
+	ctx->pktPool = new NVMPI_pktPool<nvPacket*>();
 	ctx->enable_extended_colorformat=false;
 	ctx->packets_num=param->capture_num;
 	ctx->qmax=param->qmax;
@@ -144,7 +273,8 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	ctx->insert_sps_pps_at_idr=(param->insert_spspps_idr==1)?true:false;
 	ctx->capPlaneGotEOS = false;
 	ctx->flushing = false;
-
+	ctx->blocking_mode = true; //TODO non-blocking mode support
+	ctx->max_perf = true; //TODO invistigate why encoder is slow without max_perf even with MAXN power mode
 	switch(param->profile)
 	{
 		case 77://FF_PROFILE_H264_MAIN
@@ -238,20 +368,22 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	if(param->mode_vbr)
 		ctx->ratecontrol=V4L2_MPEG_VIDEO_BITRATE_MODE_VBR;
 
-	ctx->packets_buf_size=CHUNK_SIZE;
-
-	for(int index=0;index<MAX_BUFFERS;index++)
-		ctx->packets[index]=new unsigned char[ctx->packets_buf_size];
-
 	if(codingType==NV_VIDEO_CodingH264){
 		ctx->encoder_pixfmt=V4L2_PIX_FMT_H264;
 	}else if(codingType==NV_VIDEO_CodingHEVC){
 		ctx->encoder_pixfmt=V4L2_PIX_FMT_H265;
 	}
-	ctx->enc=NvVideoEncoder::createVideoEncoder("enc0");
+	if(ctx->blocking_mode)
+	{
+		ctx->enc=NvVideoEncoder::createVideoEncoder("enc0");
+	}
+	else
+	{
+		ctx->enc = NvVideoEncoder::createVideoEncoder("enc0", O_NONBLOCK);
+	}
 	TEST_ERROR(!ctx->enc, "Could not create encoder",ret);
 
-	ret = ctx->enc->setCapturePlaneFormat(ctx->encoder_pixfmt, ctx->width,ctx->height, CHUNK_SIZE);
+	ret = ctx->enc->setCapturePlaneFormat(ctx->encoder_pixfmt, ctx->width,ctx->height, NVMPI_ENC_CHUNK_SIZE);
 
 	TEST_ERROR(ret < 0, "Could not set output plane format", ret);
 
@@ -335,6 +467,14 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	ret = ctx->enc->setIFrameInterval(ctx->iframe_interval);
 	TEST_ERROR(ret < 0, "Could not set encoder I-Frame interval", ret);
 	
+    if(ctx->max_perf)
+    {
+        /* Enable maximum performance mode by disabling internal DFS logic.
+           NOTE: This enables encoder to run at max clocks */
+		ret = ctx->enc->setMaxPerfMode(ctx->max_perf);
+		TEST_ERROR(ret < 0, "Error while setting encoder to max perf", ret);
+	}
+	
 	if(ctx->insert_sps_pps_at_idr){
 		ret = ctx->enc->setInsertSpsPpsAtIdrEnabled(true);
 		TEST_ERROR(ret < 0, "Could not set insertSPSPPSAtIDR", ret);
@@ -342,8 +482,10 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 
 	ret = ctx->enc->setFrameRate(ctx->fps_n, ctx->fps_d);
 	TEST_ERROR(ret < 0, "Could not set framerate", ret);
-
-	ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, ctx->packets_num, false, true);
+	
+	//ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, ctx->packets_num, false, true);
+	ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_MMAP, ctx->packets_num, true, false);
+	//ret = setup_output_dmabuf(ctx,ctx->packets_num);
 	TEST_ERROR(ret < 0, "Could not setup output plane", ret);
 
 	ret = ctx->enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, ctx->packets_num, true, false);
@@ -358,10 +500,22 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	ret = ctx->enc->capture_plane.setStreamStatus(true);
 	TEST_ERROR(ret < 0, "Error in capture plane streamon", ret);
 
-
-	ctx->enc->capture_plane.setDQThreadCallback(encoder_capture_plane_dq_callback);
-
-	ctx->enc->capture_plane.startDQThread(ctx);
+	if(ctx->blocking_mode)
+	{
+		ctx->enc->capture_plane.setDQThreadCallback(encoder_capture_plane_dq_callback);
+		ctx->enc->capture_plane.startDQThread(ctx);
+	}
+    else
+    {
+		/*
+        sem_init(&ctx->pollthread_sema, 0, 0);
+        sem_init(&ctx->encoderthread_sema, 0, 0);
+        // Set encoder poll thread for non-blocking io mode
+        pthread_create(&ctx->enc_pollthread, NULL, encoder_pollthread_fcn, ctx);
+        pthread_setname_np(ctx->enc_pollthread, "EncPollThread");
+        cout << "Created the PollThread and Encoder Thread \n";
+        */
+    }
 
 	// Enqueue all the empty capture plane buffers
 	for (uint32_t i = 0; i < ctx->enc->capture_plane.getNumBuffers(); i++){
@@ -381,6 +535,28 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	return ctx;
 }
 
+int copyFrameToNvBuf(nvFrame* frame, NvBuffer& buffer)
+{
+    uint32_t i, j;
+    char *dataDst;
+	char *dataSrc;
+    for (i = 0; i < buffer.n_planes; i++)
+    {
+        NvBuffer::NvBufferPlane &plane = buffer.planes[i];
+        size_t copySz = plane.fmt.bytesperpixel * plane.fmt.width;
+        dataDst = (char *) plane.data;
+        dataSrc = (char *) frame->payload[i];
+        plane.bytesused = 0;
+        for (j = 0; j < plane.fmt.height; j++)
+        {
+			memcpy(dataDst, dataSrc, copySz);
+            dataDst += plane.fmt.stride;
+            dataSrc += copySz;
+        }
+        plane.bytesused = plane.fmt.stride * plane.fmt.height;
+    }
+    return 0;
+}
 
 int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
 {
@@ -402,11 +578,26 @@ int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
 	if(ctx->index < ctx->enc->output_plane.getNumBuffers())
 	{
 		nvBuffer=ctx->enc->output_plane.getNthBuffer(ctx->index);
-		v4l2_buf.index = ctx->index ;
+		v4l2_buf.index = ctx->index;
 		ctx->index++;
+		
+		/*
+		v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+		v4l2_buf.memory = V4L2_MEMORY_DMABUF;
+		// Map output plane buffer for memory type DMABUF.
+		ret = ctx->enc->output_plane.mapOutputBuffers(v4l2_buf, ctx->output_plane_fd[v4l2_buf.index]);
+		if (ret < 0)
+		{
+			cerr << "Error while mapping buffer at output plane" << endl;
+		}
+		*/
 	}
 	else
 	{
+		/*TODO move it to another thread or make this call non-blocking.
+		 * DQBuffer could take considerable time. e.g. when encoder performance is 20fps and all output_plane is busy
+		 * it could take up to 1000/20=50ms... latency
+		 */
 		ret = ctx->enc->output_plane.dqBuffer(v4l2_buf, &nvBuffer, NULL, -1);
 		if (ret < 0)
 		{
@@ -415,26 +606,50 @@ int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
 		}
 	}
 	
-	//send EOS and flush
 	if(frame)
 	{
-		nvBuffer->planes[0].bytesused=nvBuffer->planes[0].fmt.stride * nvBuffer->planes[0].fmt.height;
-		nvBuffer->planes[1].bytesused=nvBuffer->planes[1].fmt.stride * nvBuffer->planes[1].fmt.height;
-		nvBuffer->planes[2].bytesused=nvBuffer->planes[2].fmt.stride * nvBuffer->planes[2].fmt.height;
-		memcpy(nvBuffer->planes[0].data, frame->payload[0], nvBuffer->planes[0].bytesused);
-		memcpy(nvBuffer->planes[1].data, frame->payload[1], nvBuffer->planes[1].bytesused);
-		memcpy(nvBuffer->planes[2].data, frame->payload[2], nvBuffer->planes[2].bytesused);
-
+		copyFrameToNvBuf(frame, *nvBuffer);
 		v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
 		v4l2_buf.timestamp.tv_usec = frame->timestamp % 1000000;
 		v4l2_buf.timestamp.tv_sec = frame->timestamp / 1000000;
 	}
 	else
 	{
+		//send EOS and flush
 		ctx->flushing = true;
 		v4l2_buf.m.planes[0].m.userptr = 0;
 		v4l2_buf.m.planes[0].bytesused = v4l2_buf.m.planes[1].bytesused = v4l2_buf.m.planes[2].bytesused = 0;
 	}
+
+	//needed for V4L2_MEMORY_MMAP and V4L2_MEMORY_DMABUF
+	for (uint32_t j = 0 ; j < nvBuffer->n_planes; j++)
+	{
+#ifdef WITH_NVUTILS
+		NvBufSurface *nvbuf_surf = 0;
+		ret = NvBufSurfaceFromFd (nvBuffer->planes[j].fd, (void**)(&nvbuf_surf));
+		if (ret < 0)
+		{
+			cerr << "Error while NvBufSurfaceFromFd" << endl;
+		}
+		ret = NvBufSurfaceSyncForDevice (nvbuf_surf, 0, j);
+		if (ret < 0)
+		{
+			cerr << "Error while NvBufSurfaceSyncForDevice at output plane for V4L2_MEMORY_DMABUF" << endl;
+		}
+#else
+		ret = NvBufferMemSyncForDevice (nvBuffer->planes[j].fd, j, (void **)&nvBuffer->planes[j].data);
+		if (ret < 0)
+		{
+			cerr << "Error while NvBufferMemSyncForDevice at output plane for V4L2_MEMORY_DMABUF" << endl;
+		}
+#endif
+	}
+	/* //for V4L2_MEMORY_DMABUF only
+	for (uint32_t j = 0 ; j < nvBuffer->n_planes ; j++)
+	{
+		v4l2_buf.m.planes[j].bytesused = nvBuffer->planes[j].bytesused;
+	}
+	*/
 
 	ret = ctx->enc->output_plane.qBuffer(v4l2_buf, NULL);
 	TEST_ERROR(ret < 0, "Error while queueing buffer at output plane", ret);
@@ -442,47 +657,79 @@ int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
 	return 0;
 }
 
-int nvmpi_encoder_get_packet(nvmpictx* ctx,nvPacket* packet)
+int nvmpi_encoder_dqEmptyPacket(nvmpictx* ctx,nvPacket** packet)
 {
-	int ret,packet_index;
+	nvPacket* pkt = ctx->pktPool->dqEmptyBuf();
+	if(!pkt) return -1;
+	*packet = pkt;
+	return 0;
+}
 
-	if(ctx->packet_pools->empty())
+void nvmpi_encoder_qEmptyPacket(nvmpictx* ctx,nvPacket* packet)
+{
+	ctx->pktPool->qEmptyBuf(packet);
+	return;
+}
+
+int nvmpi_encoder_get_packet(nvmpictx* ctx,nvPacket** packet)
+{
+	nvPacket* pkt = ctx->pktPool->dqFilledBuf();
+	
+	if(!pkt)
 	{
 		if(!ctx->flushing) return -1;
-		
-		while(!ctx->capPlaneGotEOS && ctx->packet_pools->empty())
+		bool wait = true;
+		while(wait)
 		{
+			pkt = ctx->pktPool->dqFilledBuf();
+			if(pkt || ctx->capPlaneGotEOS) wait = false;
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
-		if(ctx->packet_pools->empty()) return -2;
+		if(!pkt) return -2; //if got eos
 	}
-
-	packet_index= ctx->packet_pools->front();
-
-	auto ts = ctx->timestamp[packet_index];
-	auto size = ctx->packets_size[packet_index];
-	if((ts > 0) && (size == 0)) // Old packet, but 0-0 skip! wtf
-	{
-		return -1;
-	}
-
-	packet->payload=ctx->packets[packet_index];
-	packet->pts=ts;
-
-	packet->payload_size=size;
-	if(ctx->packets_keyflag[packet_index])
-		packet->flags|= 0x0001;//AV_PKT_FLAG_KEY 0x0001
-	ctx->packets_size[packet_index] = 0; // mark as readed
-	ctx->packet_pools->pop();
+	
+	*packet = pkt;
 	return 0;
 }
 
 int nvmpi_encoder_close(nvmpictx* ctx)
 {
-	ctx->enc->capture_plane.stopDQThread();
-	ctx->enc->capture_plane.waitForDQThread(1000);
+	if(ctx->blocking_mode)
+	{
+		ctx->enc->capture_plane.stopDQThread();
+		ctx->enc->capture_plane.waitForDQThread(1000);
+	}
+	else
+	{
+		//sem_destroy(&ctx.pollthread_sema);
+		//sem_destroy(&ctx.encoderthread_sema);
+	}
+	/*
+	int ret;
+    //if(ctx.output_memory_type == V4L2_MEMORY_DMABUF && ctx.enc)
+    {
+        for (uint32_t i = 0; i < ctx->enc->output_plane.getNumBuffers(); i++)
+        {
+            // Unmap output plane buffer for memory type DMABUF.
+            ret = ctx->enc->output_plane.unmapOutputBuffers(i, ctx->output_plane_fd[i]);
+            if (ret < 0)
+            {
+                cerr << "Error while unmapping buffer at output plane" << endl;
+            }
+
+            ret = NvBufSurf::NvDestroy(ctx->output_plane_fd[i]);
+            ctx->output_plane_fd[i] = -1;
+            if(ret < 0)
+            {
+                cerr << "Failed to Destroy NvBuffer\n" << endl;
+                return ret;
+            }
+        }
+    }
+    */
+	
 	delete ctx->enc;
-	delete ctx->packet_pools;
+	delete ctx->pktPool;
 	delete ctx;
 	return 0;
 }

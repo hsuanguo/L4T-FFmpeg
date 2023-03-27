@@ -385,10 +385,10 @@ index 0000000..9cfd876
 +
 diff --git a/libavcodec/nvmpi_enc.c b/libavcodec/nvmpi_enc.c
 new file mode 100644
-index 0000000..b445f86
+index 0000000..32da21a
 --- /dev/null
 +++ b/libavcodec/nvmpi_enc.c
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,502 @@
 +#include <nvmpi.h>
 +#include "avcodec.h"
 +#include "internal.h"
@@ -417,8 +417,99 @@ index 0000000..b445f86
 +	int encoder_flushing;
 +}nvmpiEncodeContext;
 +
-+static av_cold int nvmpi_encode_init(AVCodecContext *avctx){
++nvPacket* nvmpienc_nvPacket_alloc(AVCodecContext *avctx, int bufSize);
++void nvmpienc_nvPacket_free(nvPacket* nPkt);
++int nvmpienc_nvPacket_reset(nvPacket* nPkt, AVCodecContext *avctx, int bufSize);
++int nvmpienc_initPktPool(AVCodecContext *avctx, int pktNum);
++int nvmpienc_deinitPktPool(AVCodecContext *avctx);
 +
++//alloc nvPacket and AVPacket buffer;
++nvPacket* nvmpienc_nvPacket_alloc(AVCodecContext *avctx, int bufSize)
++{
++	AVPacket* pkt = av_packet_alloc();
++	nvPacket* nPkt = (nvPacket*)malloc(sizeof(nvPacket));
++	int res;
++	memset(nPkt, 0, sizeof(nvPacket));
++#if LIBAVCODEC_VERSION_MAJOR >= 60
++	if((res = ff_get_encode_buffer(avctx, pkt, bufSize, 0)))
++#else
++	if((res = ff_alloc_packet2(avctx,pkt,bufSize,bufSize)))
++#endif
++	{
++		av_packet_free(&pkt);
++		free(nPkt);
++		return NULL;
++	}
++	nPkt->privData = pkt;
++	nPkt->payload = pkt->data;
++	return nPkt;
++}
++
++void nvmpienc_nvPacket_free(nvPacket* nPkt)
++{
++	AVPacket* pkt = nPkt->privData;
++	av_packet_free(&pkt);
++	free(nPkt);
++}
++
++int nvmpienc_nvPacket_reset(nvPacket* nPkt, AVCodecContext *avctx, int bufSize)
++{
++	AVPacket* pkt = nPkt->privData;
++	int res;
++#if LIBAVCODEC_VERSION_MAJOR >= 60
++	if((res = ff_get_encode_buffer(avctx, pkt, bufSize, 0)))
++#else
++	if((res = ff_alloc_packet2(avctx,pkt,bufSize,bufSize)))
++#endif
++	{
++		return -1;
++	}
++	nPkt->payload = pkt->data;
++	nPkt->payload_size = 0;
++	nPkt->flags = 0;
++	nPkt->pts = 0;
++	return 0;
++}
++
++//must call after nvmpi_create_encoder() to preallocate buffers
++int nvmpienc_initPktPool(AVCodecContext *avctx, int pktNum)
++{
++	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
++	//TODO free allocated mem on error
++	for(int i=0;i<pktNum;i++)
++	{
++		nvPacket* nPkt = nvmpienc_nvPacket_alloc(avctx, NVMPI_ENC_CHUNK_SIZE);
++		nvmpi_encoder_qEmptyPacket(nvmpi_context->ctx, nPkt);
++	}
++	return 0;
++}
++
++//must call before nvmpi_encoder_close() too free buffers memory
++int nvmpienc_deinitPktPool(AVCodecContext *avctx)
++{
++	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
++	nvmpictx *ctx = nvmpi_context->ctx;
++	nvPacket* nPkt;
++	
++	while(nvmpi_encoder_dqEmptyPacket(ctx, &nPkt) == 0)
++	{
++		AVPacket* pkt = nPkt->privData;
++		av_packet_free(&pkt);
++		free(nPkt);
++	}
++	while(nvmpi_encoder_get_packet(ctx, &nPkt) == 0)
++	{
++		AVPacket* pkt = nPkt->privData;
++		av_packet_free(&pkt);
++		free(nPkt);
++	}
++	
++	//TODO check that all mem returned to nothing
++	return 0;
++}
++
++static av_cold int nvmpi_encode_init(AVCodecContext *avctx)
++{
 +	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
 +
 +	nvEncParam param={0};
@@ -461,23 +552,26 @@ index 0000000..b445f86
 +
 +	}
 +
-+
++	//TODO should replace it
 +	if ((avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER) && (avctx->codec->id == AV_CODEC_ID_H264)){
 +
 +		uint8_t *dst[4];
 +		int linesize[4];
 +		nvFrame _nvframe={0};
-+		nvPacket packet={0};
++		nvPacket *nPkt;
++		nvmpictx *_ctx;
 +		int i;
 +		int ret;
-+		nvmpictx* _ctx;
 +		av_image_alloc(dst, linesize,avctx->width,avctx->height,avctx->pix_fmt,1);
 +
-+		_ctx=nvmpi_create_encoder(NV_VIDEO_CodingH264,&param);
++		nvmpi_context->ctx = nvmpi_create_encoder(NV_VIDEO_CodingH264,&param);
++		_ctx = nvmpi_context->ctx;
++		//TODO error handling. if(!_ctx)
++		nvmpienc_initPktPool(avctx,nvmpi_context->num_capture_buffers);
 +		i=0;
 +
-+		while(1){
-+
++		while(true)
++		{
 +			_nvframe.payload[0]=dst[0];
 +			_nvframe.payload[1]=dst[1];
 +			_nvframe.payload[2]=dst[2];
@@ -487,37 +581,69 @@ index 0000000..b445f86
 +
 +			nvmpi_encoder_put_frame(_ctx,&_nvframe);
 +
-+			ret=nvmpi_encoder_get_packet(_ctx,&packet);
++			ret=nvmpi_encoder_get_packet(_ctx,&nPkt);
 +
 +			if(ret<0)
 +				continue;
 +
 +			//find idr index 0x0000000165
-+			while((packet.payload[i]!=0||packet.payload[i+1]!=0||packet.payload[i+2]!=0||packet.payload[i+3]!=0x01||packet.payload[i+4]!=0x65)){
++			while((nPkt->payload[i]!=0||nPkt->payload[i+1]!=0||nPkt->payload[i+2]!=0||nPkt->payload[i+3]!=0x01||nPkt->payload[i+4]!=0x65))
++			{
 +				i++;
-+
 +			}
 +
 +			avctx->extradata_size=i;
 +			avctx->extradata	= av_mallocz( avctx->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE );
-+			memcpy( avctx->extradata, packet.payload,avctx->extradata_size);
++			memcpy( avctx->extradata, nPkt->payload,avctx->extradata_size);
 +			memset( avctx->extradata + avctx->extradata_size, 0, AV_INPUT_BUFFER_PADDING_SIZE );
-+
++			
++			nvmpienc_nvPacket_free(nPkt);
++			nPkt = nvmpienc_nvPacket_alloc(avctx, NVMPI_ENC_CHUNK_SIZE);
++			
++			//return buffer to pool
++			nvmpi_encoder_qEmptyPacket(nvmpi_context->ctx, nPkt);
++			//send eos
++			nvmpi_encoder_put_frame(nvmpi_context->ctx,NULL);
++			
 +			break;
-+
 +		}
-+
-+		nvmpi_encoder_close(_ctx);
-+
-+
++		
++		//drain encoder
++		while(true)
++		{
++			ret=nvmpi_encoder_get_packet(_ctx,&nPkt);
++			if(ret < 0)
++			{
++				if(ret == -2) break; //got eos
++				usleep(1000);
++				continue;
++			}
++			nvmpienc_nvPacket_free(nPkt);
++			nPkt = nvmpienc_nvPacket_alloc(avctx, NVMPI_ENC_CHUNK_SIZE);
++			nvmpi_encoder_qEmptyPacket(nvmpi_context->ctx, nPkt);
++		}
++		
++		av_freep(&dst[0]); //free allocated image planes
++		nvmpienc_deinitPktPool(avctx);
++		nvmpi_encoder_close(nvmpi_context->ctx);
++		nvmpi_context->ctx = NULL;
 +	}
 +
 +	if(avctx->codec->id == AV_CODEC_ID_H264)
++	{
 +		nvmpi_context->ctx=nvmpi_create_encoder(NV_VIDEO_CodingH264,&param);
-+	else if(avctx->codec->id == AV_CODEC_ID_HEVC){
++	}
++	else if(avctx->codec->id == AV_CODEC_ID_HEVC)
++	{
 +		nvmpi_context->ctx=nvmpi_create_encoder(NV_VIDEO_CodingHEVC,&param);
 +	}
-+
++	//else TODO
++	
++	if(nvmpi_context->ctx)
++	{
++		nvmpienc_initPktPool(avctx,nvmpi_context->num_capture_buffers);
++	}
++	//TODO error handling. if(!nvmpi_context->ctx)
 +
 +	return 0;
 +}
@@ -564,28 +690,31 @@ index 0000000..b445f86
 +static int ff_nvmpi_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
 +{
 +	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
-+	nvPacket packet={0};
++	nvPacket *nPkt;
++	AVPacket *aPkt;
 +	int res;
 +	
-+	res = nvmpi_encoder_get_packet(nvmpi_context->ctx,&packet);
++	res = nvmpi_encoder_get_packet(nvmpi_context->ctx,&nPkt);
 +	if(res<0)
 +	{
 +		//If the encoder is in flushing state, then get_packet will block and return either a packet or EOF
 +		if(nvmpi_context->encoder_flushing) return AVERROR_EOF;
 +		return AVERROR(EAGAIN); //nvmpi get_packet returns -1 if no packets are pending
 +	}
-+#if LIBAVCODEC_VERSION_MAJOR >= 60
-+	if((res = ff_get_encode_buffer(avctx, pkt, packet.payload_size, 0)))
-+		return res;
-+#else
-+	ff_alloc_packet2(avctx,pkt,packet.payload_size,packet.payload_size);
-+#endif
-+
-+	memcpy(pkt->data,packet.payload,packet.payload_size);
-+	pkt->dts=pkt->pts=packet.pts;
-+
-+	if(packet.flags& AV_PKT_FLAG_KEY)
-+		pkt->flags = AV_PKT_FLAG_KEY;
++	
++	aPkt = (AVPacket*)(nPkt->privData);
++	aPkt->dts=aPkt->pts=nPkt->pts;
++	av_shrink_packet(aPkt, nPkt->payload_size);
++	if(nPkt->flags& AV_PKT_FLAG_KEY) aPkt->flags = AV_PKT_FLAG_KEY;
++	av_packet_move_ref(pkt, aPkt);
++	
++	if(nvmpienc_nvPacket_reset(nPkt, avctx, NVMPI_ENC_CHUNK_SIZE))
++	{
++		nvmpienc_nvPacket_free(nPkt);
++		return AVERROR(ENOMEM);
++	}
++	
++	nvmpi_encoder_qEmptyPacket(nvmpi_context->ctx, nPkt);
 +
 +	return 0;
 +}
@@ -598,16 +727,13 @@ index 0000000..b445f86
 +	res = ff_nvmpi_send_frame(avctx, frame);
 +
 +	if(res < 0)
-+		return res;
++	{
++		if(res != AVERROR_EOF && res != AVERROR(EAGAIN)) return res;
++	}
 +
 +	res = ff_nvmpi_receive_packet(avctx, pkt);
-+
-+	if (res == AVERROR(EAGAIN) || res == AVERROR_EOF)
-+		return 0;
-+
-+	if (res < 0)
-+		return res;
-+
++	if(res<0) return res;
++	
 +	*got_packet = 1;
 +
 +	return 0;
@@ -616,6 +742,33 @@ index 0000000..b445f86
 +static av_cold int nvmpi_encode_close(AVCodecContext *avctx)
 +{
 +	nvmpiEncodeContext *nvmpi_context = avctx->priv_data;
++	
++	//drain encoder
++	{
++		int ret;
++		nvPacket *nPkt;
++		if(!nvmpi_context->encoder_flushing)
++		{
++			nvmpi_context->encoder_flushing = 1;
++			nvmpi_encoder_put_frame(nvmpi_context->ctx,NULL);
++		}
++		
++		while(1)
++		{
++			ret=nvmpi_encoder_get_packet(nvmpi_context->ctx,&nPkt);
++			if(ret < 0)
++			{
++				if(ret == -2) break; //got eos
++				usleep(1000);
++				continue;
++			}
++			nvmpienc_nvPacket_free(nPkt);
++			nPkt = nvmpienc_nvPacket_alloc(avctx, NVMPI_ENC_CHUNK_SIZE);
++			nvmpi_encoder_qEmptyPacket(nvmpi_context->ctx, nPkt);
++		}
++	}
++	
++	nvmpienc_deinitPktPool(avctx);
 +	nvmpi_encoder_close(nvmpi_context->ctx);
 +
 +	return 0;
