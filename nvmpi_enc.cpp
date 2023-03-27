@@ -1,6 +1,8 @@
 #include "nvmpi.h"
 #include "NvVideoEncoder.h"
 #include "nvUtils2NvBuf.h"
+#include <fcntl.h>
+#include <malloc.h>
 #include <vector>
 #include <iostream>
 #include <thread>
