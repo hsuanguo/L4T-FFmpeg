@@ -184,10 +184,10 @@ index d2f9a39..04dc62b 100644
  
 diff --git a/libavcodec/nvmpi_dec.c b/libavcodec/nvmpi_dec.c
 new file mode 100644
-index 0000000..9cfd876
+index 0000000..25cea51
 --- /dev/null
 +++ b/libavcodec/nvmpi_dec.c
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,198 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <sys/time.h>
@@ -324,6 +324,9 @@ index 0000000..9cfd876
 +	if (ff_get_buffer(avctx, bufFrame, 0) < 0) {
 +		return AVERROR(ENOMEM);
 +	}
++	
++	frame->metadata = bufFrame->metadata;
++	bufFrame->metadata = NULL;
 +
 +	return avpkt->size;
 +}

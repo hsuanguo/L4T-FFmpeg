@@ -134,6 +134,9 @@ static int nvmpi_decode(AVCodecContext *avctx,void *data,int *got_frame, AVPacke
 	if (ff_get_buffer(avctx, bufFrame, 0) < 0) {
 		return AVERROR(ENOMEM);
 	}
+	
+	frame->metadata = bufFrame->metadata;
+	bufFrame->metadata = NULL;
 
 	return avpkt->size;
 }
