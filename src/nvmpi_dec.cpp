@@ -21,6 +21,15 @@
 
 using namespace std;
 
+/*
+struct NVMPI_frameBuf
+{
+	int dst_dma_fd = 0;
+	NvBufSurface *dst_dma_surface = NULL;
+	unsigned long long timestamp = 0;
+};
+*/
+
 struct NVMPI_framePool
 {
 	int _bufNumber = 0; //total number of allocated buffers

@@ -1,14 +1,13 @@
 #include "nvmpi.h"
 #include "NvVideoEncoder.h"
 #include "nvUtils2NvBuf.h"
+#include "NVMPI_bufPool.hpp"
 #include <fcntl.h>
 #include <malloc.h>
 #include <vector>
 #include <iostream>
 #include <thread>
 #include <unistd.h>
-#include <queue>
-#include <mutex>
 
 #define MAX_BUFFERS 32
 #define TEST_ERROR(condition, message, errorCode)    \
@@ -18,70 +17,6 @@
 }
 
 using namespace std;
-
-template <typename T>
-struct NVMPI_pktPool
-{	
-	std::mutex m_emptyBuf;
-	std::mutex m_filledBuf;
-	std::queue<T> emptyBuf; //list of buffers available to fill 
-	std::queue<T> filledBuf; //filled buffers to consume
-	
-	T dqEmptyBuf();
-	void qEmptyBuf(T buf);
-	
-	T dqFilledBuf();
-	void qFilledBuf(T buf);
-	
-	//NVMPI_pktPool() {}
-	//~NVMPI_pktPool();
-};
-
-template<typename T>
-T NVMPI_pktPool<T>::dqEmptyBuf()
-{
-	T buf = NULL;
-	m_emptyBuf.lock();
-	if(!emptyBuf.empty())
-	{
-		buf = emptyBuf.front();
-		emptyBuf.pop();
-	}
-	m_emptyBuf.unlock();
-	return buf;
-}
-
-template<typename T>
-T NVMPI_pktPool<T>::dqFilledBuf()
-{
-	T buf = NULL;
-	m_filledBuf.lock();
-	if(!filledBuf.empty())
-	{
-		buf = filledBuf.front();
-		filledBuf.pop();
-	}
-	m_filledBuf.unlock();
-	return buf;
-}
-
-template<typename T>
-void NVMPI_pktPool<T>::qEmptyBuf(T buf)
-{
-	m_emptyBuf.lock();
-	emptyBuf.push(buf);
-	m_emptyBuf.unlock();
-	return;
-}
-
-template<typename T>
-void NVMPI_pktPool<T>::qFilledBuf(T buf)
-{
-	m_filledBuf.lock();
-	filledBuf.push(buf);
-	m_filledBuf.unlock();
-	return;
-}
 
 struct nvmpictx
 {
@@ -117,7 +52,7 @@ struct nvmpictx
 	
 	bool capPlaneGotEOS;
 	bool flushing;
-	NVMPI_pktPool<nvPacket*>* pktPool;
+	NVMPI_bufPool<nvPacket*>* pktPool;
 };
 
 
@@ -265,7 +200,7 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	ctx->fps_n = param->fps_n;
 	ctx->fps_d = param->fps_d;
 	ctx->iframe_interval = param->iframe_interval;
-	ctx->pktPool = new NVMPI_pktPool<nvPacket*>();
+	ctx->pktPool = new NVMPI_bufPool<nvPacket*>();
 	ctx->enable_extended_colorformat=false;
 	ctx->packets_num=param->capture_num;
 	ctx->qmax=param->qmax;

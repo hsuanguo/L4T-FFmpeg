@@ -23,17 +23,28 @@ find_library(LIB_V4L2 nvv4l2 PATHS /usr/lib/aarch64-linux-gnu/tegra)
 find_library(LIB_NVJPEG nvjpeg PATHS /usr/lib/aarch64-linux-gnu/tegra)
 find_package (Threads)
 
+set(NVMPI_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(NVMPI_PUBLIC_HEADER ${NVMPI_INCLUDE_DIR}/nvmpi.h)
+set(CUDA_INCLUDE_DIR /usr/local/cuda/include)
+set(JETSON_MULTIMEDIA_API_INCLUDE_DIR /usr/src/jetson_multimedia_api/include)
+set(JETSON_MULTIMEDIA_API_SRC_DIR /usr/src/jetson_multimedia_api/samples/common/classes)
+
+set(NVMPI_INCLUDE_DIRS
+	${NVMPI_INCLUDE_DIR}
+	${CUDA_INCLUDE_DIR}
+	${JETSON_MULTIMEDIA_API_INCLUDE_DIR})
+
 set(NVMPI_SRC
-    nvmpi_dec.cpp
-    nvmpi_enc.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvBuffer.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvElementProfiler.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvVideoDecoder.cpp
-    /usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/nvmpi_dec.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/nvmpi_enc.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvBuffer.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvElement.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvElementProfiler.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvLogging.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvV4l2Element.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvV4l2ElementPlane.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvVideoDecoder.cpp
+    ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvVideoEncoder.cpp)
     
 set(NVMPI_DEP_LIBS ${CMAKE_THREAD_LIBS_INIT} ${LIB_NVBUF} ${LIB_V4L2} ${LIB_NVJPEG})
 
@@ -53,13 +64,11 @@ add_library(nvmpi_static STATIC ${NVMPI_SRC})
 set_target_properties(nvmpi_static PROPERTIES OUTPUT_NAME nvmpi)
 set_target_properties(nvmpi PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(nvmpi PROPERTIES SOVERSION 1)
-set_target_properties(nvmpi nvmpi_static PROPERTIES PUBLIC_HEADER nvmpi.h)
+set_target_properties(nvmpi nvmpi_static PROPERTIES PUBLIC_HEADER ${NVMPI_PUBLIC_HEADER})
 set_target_properties(nvmpi PROPERTIES LINK_FLAGS "-Wl,--no-as-needed")
 target_link_libraries(nvmpi PRIVATE ${NVMPI_DEP_LIBS})
-target_include_directories(nvmpi PRIVATE /usr/src/jetson_multimedia_api/include)
-target_include_directories(nvmpi PRIVATE /usr/local/cuda/include)
-target_include_directories(nvmpi_static PRIVATE /usr/src/jetson_multimedia_api/include)
-target_include_directories(nvmpi_static PRIVATE /usr/local/cuda/include)
+target_include_directories(nvmpi PRIVATE ${NVMPI_INCLUDE_DIRS})
+target_include_directories(nvmpi_static PRIVATE ${NVMPI_INCLUDE_DIRS})
 configure_file(nvmpi.pc.in nvmpi.pc @ONLY)
 include(GNUInstallDirs)
 install(TARGETS nvmpi nvmpi_static
