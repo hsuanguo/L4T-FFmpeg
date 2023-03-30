@@ -1,4 +1,5 @@
 #include "NVMPI_frameBuf.hpp"
+#include <iostream> //LOG. TODO: add some LOG() define
 
 bool NVMPI_frameBuf::alloc(NvBufferCreateParams& input_params)
 {
