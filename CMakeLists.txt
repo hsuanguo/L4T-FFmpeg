@@ -37,6 +37,7 @@ set(NVMPI_INCLUDE_DIRS
 set(NVMPI_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/nvmpi_dec.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/nvmpi_enc.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/NVMPI_frameBuf.cpp
     ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvBuffer.cpp
     ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvElement.cpp
     ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvElementProfiler.cpp

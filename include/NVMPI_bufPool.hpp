@@ -12,6 +12,9 @@ struct NVMPI_bufPool
 	
 	T dqEmptyBuf();
 	void qEmptyBuf(T buf);
+	//Peek at the buffer without dequeuing. Potentially dangerous. Use
+	//only in places where simultaneous access to the queue is not possible.
+	T peekEmptyBuf();
 	
 	T dqFilledBuf();
 	void qFilledBuf(T buf);
@@ -26,6 +29,19 @@ T NVMPI_bufPool<T>::dqEmptyBuf()
 	{
 		buf = emptyBuf.front();
 		emptyBuf.pop();
+	}
+	m_emptyBuf.unlock();
+	return buf;
+}
+
+template<typename T>
+T NVMPI_bufPool<T>::peekEmptyBuf()
+{
+	T buf = NULL;
+	m_emptyBuf.lock();
+	if(!emptyBuf.empty())
+	{
+		buf = emptyBuf.front();
 	}
 	m_emptyBuf.unlock();
 	return buf;
