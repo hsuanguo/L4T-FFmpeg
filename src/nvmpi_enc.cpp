@@ -474,26 +474,26 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 
 int copyFrameToNvBuf(nvFrame* frame, NvBuffer& buffer)
 {
-    uint32_t i, j;
-    char *dataDst;
+	uint32_t i, j;
+	char *dataDst;
 	char *dataSrc;
-    for (i = 0; i < buffer.n_planes; i++)
-    {
-        NvBuffer::NvBufferPlane &plane = buffer.planes[i];
-        unsigned int &frameLineSize = frame->linesize[i];
-        size_t copySz = plane.fmt.bytesperpixel * plane.fmt.width;
-        dataDst = (char *) plane.data;
-        dataSrc = (char *) frame->payload[i];
-        plane.bytesused = 0;
-        for (j = 0; j < plane.fmt.height; j++)
-        {
+	for (i = 0; i < buffer.n_planes; i++)
+	{
+		NvBuffer::NvBufferPlane &plane = buffer.planes[i];
+		unsigned int &frameLineSize = frame->linesize[i];
+		size_t copySz = plane.fmt.bytesperpixel * plane.fmt.width;
+		dataDst = (char *) plane.data;
+		dataSrc = (char *) frame->payload[i];
+		plane.bytesused = 0;
+		for (j = 0; j < plane.fmt.height; j++)
+		{
 			memcpy(dataDst, dataSrc, copySz);
-            dataDst += plane.fmt.stride;
-            dataSrc += frameLineSize;
-        }
-        plane.bytesused = plane.fmt.stride * plane.fmt.height;
-    }
-    return 0;
+			dataDst += plane.fmt.stride;
+			dataSrc += frameLineSize;
+		}
+		plane.bytesused = plane.fmt.stride * plane.fmt.height;
+	}
+	return 0;
 }
 
 int nvmpi_encoder_put_frame(nvmpictx* ctx,nvFrame* frame)
