@@ -480,6 +480,7 @@ int copyFrameToNvBuf(nvFrame* frame, NvBuffer& buffer)
     for (i = 0; i < buffer.n_planes; i++)
     {
         NvBuffer::NvBufferPlane &plane = buffer.planes[i];
+        unsigned int &frameLineSize = frame->linesize[i];
         size_t copySz = plane.fmt.bytesperpixel * plane.fmt.width;
         dataDst = (char *) plane.data;
         dataSrc = (char *) frame->payload[i];
@@ -488,7 +489,7 @@ int copyFrameToNvBuf(nvFrame* frame, NvBuffer& buffer)
         {
 			memcpy(dataDst, dataSrc, copySz);
             dataDst += plane.fmt.stride;
-            dataSrc += copySz;
+            dataSrc += frameLineSize;
         }
         plane.bytesused = plane.fmt.stride * plane.fmt.height;
     }
