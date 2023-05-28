@@ -392,10 +392,10 @@ index 0000000..25cea51
 +
 diff --git a/libavcodec/nvmpi_enc.c b/libavcodec/nvmpi_enc.c
 new file mode 100644
-index 0000000..32da21a
+index 0000000..89a958f
 --- /dev/null
 +++ b/libavcodec/nvmpi_enc.c
-@@ -0,0 +1,502 @@
+@@ -0,0 +1,555 @@
 +#include <nvmpi.h>
 +#include "avcodec.h"
 +#include "internal.h"
@@ -407,9 +407,14 @@ index 0000000..32da21a
 +#include "libavutil/log.h"
 +#include "libavutil/opt.h"
 +
-+#if LIBAVCODEC_VERSION_MAJOR >= 60
-+#include "codec_internal.h"
++#include "version.h"
++
++#if (LIBAVCODEC_VERSION_MAJOR >= 58 && LIBAVCODEC_VERSION_MINOR>= 134) || (LIBAVCODEC_VERSION_MAJOR >= 59)
++#define NVMPI_FF_NEW_API
 +#include "encode.h"
++#endif
++#if (LIBAVCODEC_VERSION_MAJOR >= 60)
++#include "codec_internal.h"
 +#endif
 +
 +
@@ -422,6 +427,7 @@ index 0000000..32da21a
 +	int rc;
 +	int preset;
 +	int encoder_flushing;
++	AVFrame *frame; //tmp frame
 +}nvmpiEncodeContext;
 +
 +nvPacket* nvmpienc_nvPacket_alloc(AVCodecContext *avctx, int bufSize);
@@ -527,7 +533,7 @@ index 0000000..32da21a
 +	param.mode_vbr=0;
 +	param.idr_interval=60;
 +	param.iframe_interval=30;
-+	param.peak_bitrate=0;
++	param.peak_bitrate=avctx->rc_max_rate;
 +	param.fps_n=avctx->framerate.num;
 +	param.fps_d=avctx->framerate.den;
 +	param.profile=nvmpi_context->profile& ~FF_PROFILE_H264_INTRA;
@@ -535,6 +541,9 @@ index 0000000..32da21a
 +	param.capture_num=nvmpi_context->num_capture_buffers;
 +	param.hw_preset_type=nvmpi_context->preset;
 +	param.insert_spspps_idr=(avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER)?0:1;
++	
++	nvmpi_context->frame = av_frame_alloc();
++	if (!nvmpi_context->frame) return AVERROR(ENOMEM);
 +
 +	if(nvmpi_context->rc==1){
 +		param.mode_vbr=1;
@@ -726,6 +735,8 @@ index 0000000..32da21a
 +	return 0;
 +}
 +
++/*
++ * //old avcodec .encode2 api. TODO: remove it
 +static int ff_nvmpi_encode_frame(AVCodecContext *avctx, AVPacket *pkt,const AVFrame *frame, int *got_packet)
 +{
 +	int res;
@@ -745,6 +756,43 @@ index 0000000..32da21a
 +
 +	return 0;
 +}
++*/
++
++#ifdef NVMPI_FF_NEW_API
++static int ff_nvmpi_receive_packet_async(AVCodecContext *avctx, AVPacket *pkt)
++{
++	int res;
++	nvmpiEncodeContext * nvmpi_context = avctx->priv_data;
++	AVFrame *frame = nvmpi_context->frame;
++	bool needSendFrame = true;
++	
++	if (!frame->buf[0])
++	{
++		res = ff_encode_get_frame(avctx, frame);
++		if (res < 0)
++		{
++			if(res == AVERROR(EAGAIN)) needSendFrame = false;
++			else if(res == AVERROR_EOF) frame = NULL;
++			else return res;
++		}
++	}
++	
++	if(needSendFrame)
++	{
++		res = ff_nvmpi_send_frame(avctx, frame);
++		if (res < 0)
++		{
++			if(res != AVERROR_EOF && res != AVERROR(EAGAIN)) return res;
++		}
++		else av_frame_unref(frame);
++	}
++
++	res = ff_nvmpi_receive_packet(avctx, pkt);
++	if(res<0) return res;
++
++	return 0;
++}
++#endif
 +
 +static av_cold int nvmpi_encode_close(AVCodecContext *avctx)
 +{
@@ -777,6 +825,7 @@ index 0000000..32da21a
 +	
 +	nvmpienc_deinitPktPool(avctx);
 +	nvmpi_encoder_close(nvmpi_context->ctx);
++	av_frame_free(&nvmpi_context->frame);
 +
 +	return 0;
 +}
@@ -853,9 +902,6 @@ index 0000000..32da21a
 +	};
 +
 +
-+//TODO add decoupled api support for ffmpeg 6.0
-+/*.p.send_frame     = ff_nvmpi_send_frame, \ */
-+/*FF_CODEC_RECEIVE_PACKET_CB(ff_nvmpi_receive_packet), \ */
 +#if LIBAVCODEC_VERSION_MAJOR >= 60
 +	#define NVMPI_ENC(NAME, LONGNAME, CODEC) \
 +		NVMPI_ENC_CLASS(NAME) \
@@ -867,7 +913,7 @@ index 0000000..32da21a
 +			.priv_data_size = sizeof(nvmpiEncodeContext), \
 +			.p.priv_class     = &nvmpi_ ## NAME ##_enc_class, \
 +			.init           = nvmpi_encode_init, \
-+			FF_CODEC_ENCODE_CB(ff_nvmpi_encode_frame), \
++			FF_CODEC_RECEIVE_PACKET_CB(ff_nvmpi_receive_packet_async), \
 +			.close          = nvmpi_encode_close, \
 +			.p.pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE },\
 +			.p.capabilities   = AV_CODEC_CAP_HARDWARE | AV_CODEC_CAP_DELAY, \
@@ -875,6 +921,15 @@ index 0000000..32da21a
 +			.p.wrapper_name   = "nvmpi", \
 +		};
 +#else
++	#ifdef NVMPI_FF_NEW_API
++		#define NVMPI_ENC_API_CALLS \
++				.receive_packet = ff_nvmpi_receive_packet_async
++	#else
++		#define NVMPI_ENC_API_CALLS \
++				.send_frame     = ff_nvmpi_send_frame, \
++				.receive_packet = ff_nvmpi_receive_packet
++	#endif
++	
 +	#define NVMPI_ENC(NAME, LONGNAME, CODEC) \
 +		NVMPI_ENC_CLASS(NAME) \
 +		AVCodec ff_ ## NAME ## _nvmpi_encoder = { \
@@ -885,9 +940,7 @@ index 0000000..32da21a
 +			.priv_data_size = sizeof(nvmpiEncodeContext), \
 +			.priv_class     = &nvmpi_ ## NAME ##_enc_class, \
 +			.init           = nvmpi_encode_init, \
-+			.send_frame     = ff_nvmpi_send_frame, \
-+			.receive_packet = ff_nvmpi_receive_packet, \
-+			.encode2        = ff_nvmpi_encode_frame, \
++			NVMPI_ENC_API_CALLS, \
 +			.close          = nvmpi_encode_close, \
 +			.pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE },\
 +			.capabilities   = AV_CODEC_CAP_HARDWARE | AV_CODEC_CAP_DELAY, \

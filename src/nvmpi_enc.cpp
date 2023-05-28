@@ -82,7 +82,8 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 	if(!pkt)
 	{
 		//TODO wait for user to read buffer. make send_frame return AVERROR(EAGAIN) until avcodec_receive_packet() is called
-		printf("[W]: EAGAIN. User must read output. nvmpi encoder packet memory pool is empty! Packet will be dropped. There may be artifacts in the output video.\n");
+		//TODO pass warning to avlog
+		printf("[libnvmpi][W]: EAGAIN. User must read output. nvmpi encoder packet memory pool is empty! Packet will be dropped. There may be artifacts in the output video.\n");
 	}
 	else
 	{
@@ -383,9 +384,10 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 		ret = ctx->enc->setRateControlMode(ctx->ratecontrol);
 		TEST_ERROR(ret < 0, "Could not set encoder rate control mode", ret);
 
-		if (ctx->ratecontrol == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR){
-
+		if (ctx->ratecontrol == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR)
+		{
 			uint32_t peak_bitrate;
+			//TODO log warning?
 			if (ctx->peak_bitrate < ctx->bitrate)
 				peak_bitrate = 1.2f * ctx->bitrate;
 			else
