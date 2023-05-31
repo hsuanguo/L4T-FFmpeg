@@ -33,6 +33,7 @@ typedef struct _NVENCPARAM{
 	unsigned int qmax;
 	unsigned int qmin;
 	unsigned int hw_preset_type;
+	unsigned int vbv_buffer_size; //virtual buffer size of the encoder
 	
 } nvEncParam;
 

@@ -388,10 +388,10 @@ index 0000000..25cea51
 +
 diff --git a/libavcodec/nvmpi_enc.c b/libavcodec/nvmpi_enc.c
 new file mode 100644
-index 0000000..89a958f
+index 0000000..957b7e0
 --- /dev/null
 +++ b/libavcodec/nvmpi_enc.c
-@@ -0,0 +1,555 @@
+@@ -0,0 +1,557 @@
 +#include <nvmpi.h>
 +#include "avcodec.h"
 +#include "internal.h"
@@ -526,6 +526,8 @@ index 0000000..89a958f
 +	param.width=avctx->width;
 +	param.height=avctx->height;
 +	param.bitrate=avctx->bit_rate;
++	param.vbv_buffer_size = avctx->rc_buffer_size;
++	//TODO use rc_initial_buffer_occupancy or ignore?
 +	param.mode_vbr=0;
 +	param.idr_interval=60;
 +	param.iframe_interval=30;

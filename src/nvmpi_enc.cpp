@@ -20,39 +20,40 @@ using namespace std;
 
 struct nvmpictx
 {
-	NvVideoEncoder *enc;
 	uint32_t index;
 	uint32_t width;
 	uint32_t height;
 	uint32_t profile;
-	bool enableLossless;
 	uint32_t bitrate;
 	uint32_t peak_bitrate;
 	uint32_t raw_pixfmt;
 	uint32_t encoder_pixfmt;
-	enum v4l2_mpeg_video_bitrate_mode ratecontrol;
-	enum v4l2_mpeg_video_h264_level level;
-	enum v4l2_enc_hw_preset_type hw_preset_type;
 	uint32_t iframe_interval;
 	uint32_t idr_interval;
 	uint32_t fps_n;
 	uint32_t fps_d;
-	bool enable_extended_colorformat;
 	uint32_t qmax;
 	uint32_t qmin;
 	uint32_t num_b_frames;
 	uint32_t num_reference_frames;
+	uint32_t vbv_buffer_size; //virtual buffer size of the encoder
+	uint32_t packets_num;
+
 	bool insert_sps_pps_at_idr;
 	bool max_perf; //enable max performance mode
-
-	//int output_plane_fd[32]; //TODO 
-	uint32_t packets_num;
-	
+	bool enable_extended_colorformat;
+	bool enableLossless;
 	bool blocking_mode;
-	
 	bool capPlaneGotEOS;
 	bool flushing;
+
+	enum v4l2_mpeg_video_bitrate_mode ratecontrol;
+	enum v4l2_mpeg_video_h264_level level;
+	enum v4l2_enc_hw_preset_type hw_preset_type;
+
+	NvVideoEncoder *enc;
 	NVMPI_bufPool<nvPacket*>* pktPool;
+	//int output_plane_fd[32]; //TODO
 };
 
 
@@ -213,6 +214,8 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 	ctx->flushing = false;
 	ctx->blocking_mode = true; //TODO non-blocking mode support
 	ctx->max_perf = true; //TODO invistigate why encoder is slow without max_perf even with MAXN power mode
+	ctx->vbv_buffer_size = param->vbv_buffer_size;
+	
 	switch(param->profile)
 	{
 		case 77://FF_PROFILE_H264_MAIN
@@ -348,6 +351,13 @@ nvmpictx* nvmpi_create_encoder(nvCodingType codingType,nvEncParam * param)
 
 	ret = ctx->enc->setBitrate(ctx->bitrate);
 	TEST_ERROR(ret < 0, "Could not set encoder bitrate", ret);
+
+	if(ctx->vbv_buffer_size)
+	{
+		/* Set virtual buffer size value for encoder */
+		ret = ctx->enc->setVirtualBufferSize(ctx->vbv_buffer_size);
+		TEST_ERROR(ret < 0, "Could not set virtual buffer size", ret);
+	}
 
 	ret=ctx->enc->setHWPresetType(ctx->hw_preset_type);
 	TEST_ERROR(ret < 0, "Could not set encoder HW Preset Type", ret);

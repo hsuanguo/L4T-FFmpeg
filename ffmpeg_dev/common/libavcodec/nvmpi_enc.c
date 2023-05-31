@@ -132,6 +132,8 @@ static av_cold int nvmpi_encode_init(AVCodecContext *avctx)
 	param.width=avctx->width;
 	param.height=avctx->height;
 	param.bitrate=avctx->bit_rate;
+	param.vbv_buffer_size = avctx->rc_buffer_size;
+	//TODO use rc_initial_buffer_occupancy or ignore?
 	param.mode_vbr=0;
 	param.idr_interval=60;
 	param.iframe_interval=30;
