@@ -29,6 +29,9 @@ struct nvmpictx
 	int index{0};
 	unsigned int coded_width{0};
 	unsigned int coded_height{0};
+	unsigned int output_width{0};
+	unsigned int output_height{0};
+	nvSize resized{0, 0};
 	
 	int numberCaptureBuffers{0};
 	
@@ -49,7 +52,7 @@ struct nvmpictx
 	
 	NVMPI_bufPool<NVMPI_frameBuf*>* framePool;
 	
-	//frame size params
+	//output frame size params
 	unsigned int frame_size[MAX_NUM_PLANES];
 	unsigned int frame_linesize[MAX_NUM_PLANES];
 	unsigned int frame_height[MAX_NUM_PLANES];
@@ -244,8 +247,8 @@ void nvmpictx::updateBufferTransformParams()
 	src_rect.height = coded_height;
 	dest_rect.top = 0;
 	dest_rect.left = 0;
-	dest_rect.width = coded_width;
-	dest_rect.height = coded_height;
+	dest_rect.width = output_width;
+	dest_rect.height = output_height;
 	
 	memset(&transform_params,0,sizeof(transform_params));
 	transform_params.transform_flag = NVBUFFER_TRANSFORM_FILTER;
@@ -289,8 +292,8 @@ void nvmpictx::initFramePool()
 	NvBufferCreateParams input_params;
 	memset(&input_params, 0, sizeof(input_params));
 	/* Create PitchLinear output buffer for transform. */
-	input_params.width = coded_width;
-	input_params.height = coded_height;
+	input_params.width = output_width;
+	input_params.height = output_height;
 	input_params.layout = NvBufferLayout_Pitch;
 	input_params.colorFormat = cFmt;
 #ifdef WITH_NVUTILS
@@ -326,8 +329,10 @@ void respondToResolutionEvent(v4l2_format &format, v4l2_crop &crop,nvmpictx* ctx
 	ret = ctx->dec->capture_plane.getCrop(crop);
 	TEST_ERROR(ret < 0, "Error: Could not get crop from decoder capture plane", ret);
 
-	ctx->coded_width=crop.c.width;
-	ctx->coded_height=crop.c.height;
+	ctx->coded_width = crop.c.width;
+	ctx->coded_height = crop.c.height;
+	ctx->output_width = ctx->resized.width ? ctx->resized.width : crop.c.width;
+	ctx->output_height = ctx->resized.height ? ctx->resized.height : crop.c.height;
 	
 	//init/reinit DecoderCapturePlane
 	ctx->deinitDecoderCapturePlane();
@@ -500,8 +505,7 @@ void dec_capture_loop_fcn(void *arg)
 	return;
 }
 
-//TODO: accept in nvmpi_create_decoder stream params (width and height, etc...) from ffmpeg.
-nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
+nvmpictx* nvmpi_create_decoder(nvCodingType codingType, nvPixFormat pixFormat, nvSize resized){
 	
 	int ret;
 	log_level = LOG_LEVEL_INFO;
@@ -556,6 +560,7 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType,nvPixFormat pixFormat){
 	TEST_ERROR(ret < 0, "Error in output plane stream on", ret);
 
 	ctx->out_pixfmt=pixFormat;
+	ctx->resized = resized;
 	ctx->framePool = new NVMPI_bufPool<NVMPI_frameBuf*>();
 	ctx->eos=false;
 	ctx->index=0;
