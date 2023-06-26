@@ -193,10 +193,10 @@ index d2f9a39..04dc62b 100644
  
 diff --git a/libavcodec/nvmpi_dec.c b/libavcodec/nvmpi_dec.c
 new file mode 100644
-index 0000000..3e85098
+index 0000000..6ea5aba
 --- /dev/null
 +++ b/libavcodec/nvmpi_dec.c
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,228 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <sys/time.h>
@@ -335,6 +335,9 @@ index 0000000..3e85098
 +	_nvframe.payload[0] = bufFrame->data[0];
 +	_nvframe.payload[1] = bufFrame->data[1];
 +	_nvframe.payload[2] = bufFrame->data[2];
++	_nvframe.linesize[0] = bufFrame->linesize[0];
++	_nvframe.linesize[1] = bufFrame->linesize[1];
++	_nvframe.linesize[2] = bufFrame->linesize[2];
 +
 +	res=nvmpi_decoder_get_frame(nvmpi_context->ctx,&_nvframe,avctx->flags & AV_CODEC_FLAG_LOW_DELAY);
 +

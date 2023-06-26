@@ -53,9 +53,10 @@ struct nvmpictx
 	NVMPI_bufPool<NVMPI_frameBuf*>* framePool;
 	
 	//output frame size params
-	unsigned int frame_size[MAX_NUM_PLANES];
+	unsigned int num_planes;
 	unsigned int frame_linesize[MAX_NUM_PLANES];
 	unsigned int frame_height[MAX_NUM_PLANES];
+	unsigned int frame_linedatasize[MAX_NUM_PLANES]; //usable data size for 1 line
 	
 	//empty frame queue and free buffers memory
 	void deinitFramePool();
@@ -226,15 +227,30 @@ void nvmpictx::updateFrameSizeParams()
 	TEST_ERROR(ret < 0, "Failed to get dst dma buf params", ret);
 #endif
 
-	frame_linesize[0] = parm.width[0];
-	frame_linesize[1] = parm.width[1];
-	frame_linesize[2] =	parm.width[2];
-	frame_size[0]	  = parm.psize[0];
-	frame_size[1]	  =	parm.psize[1];
-	frame_size[2] 	  =	parm.psize[2];
-	frame_height[0]	  = parm.height[0];
-	frame_height[1]	  = parm.height[1];
-	frame_height[2]	  = parm.height[2];
+	num_planes = parm.num_planes;
+	for(unsigned int i=0; i<num_planes; i++)
+	{
+		frame_linesize[i] = parm.pitch[i];
+		frame_height[i] = parm.height[i];
+#ifdef WITH_NVUTILS
+		frame_linedatasize[i] = parm.width[i] * parm.bytesPerPix[i]; //valid only for nvutils
+#else
+		if(i == 1 && (parm.pixel_format == NvBufferColorFormat_NV12 ||
+				parm.pixel_format == NvBufferColorFormat_NV16 ||
+				parm.pixel_format == NvBufferColorFormat_NV24 ||
+				parm.pixel_format == NvBufferColorFormat_NV12_ER ||
+				parm.pixel_format == NvBufferColorFormat_NV12_709 ||
+				parm.pixel_format == NvBufferColorFormat_NV12_709_ER ||
+				parm.pixel_format == NvBufferColorFormat_NV12_2020))
+		{
+			frame_linedatasize[i] = parm.width[i] * 2;
+		}
+		else
+		{
+			frame_linedatasize[i] = parm.width[i];
+		}
+#endif
+	}
 	
 	return;
 }
@@ -565,7 +581,6 @@ nvmpictx* nvmpi_create_decoder(nvCodingType codingType, nvPixFormat pixFormat, n
 	ctx->framePool = new NVMPI_bufPool<NVMPI_frameBuf*>();
 	ctx->eos=false;
 	ctx->index=0;
-	ctx->frame_size[0]=0;
 	for(int index=0;index<MAX_BUFFERS;index++)
 		ctx->dmaBufferFileDescriptor[index]=0;
 	ctx->numberCaptureBuffers=0;
@@ -627,29 +642,60 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
 	return 0;
 }
 
+int copyNvBufToFrame(nvmpictx* ctx, NVMPI_frameBuf *nvmpiBuf, nvFrame* frame)
+{
+	int ret;
+	char *dataDst;
+	char *dataSrc;
+	
+	for(unsigned int plane=0; plane<ctx->num_planes; plane++)
+	{
+#ifdef WITH_NVUTILS
+		NvBufSurface *nvbuf_surf = nvmpiBuf->dst_dma_surface;
+		ret = NvBufSurfaceMap(nvbuf_surf, 0, plane, NVBUF_MAP_READ_WRITE);
+		NvBufSurfaceSyncForCpu (nvbuf_surf, 0, plane);
+		dataSrc = (char *)nvbuf_surf->surfaceList[0].mappedAddr.addr[plane];
+#else
+		int dmabuf_fd = nvmpiBuf->dst_dma_fd;
+		ret = NvBufferMemMap(dmabuf_fd, plane, NvBufferMem_Read_Write, &dataSrc);
+		NvBufferMemSyncForCpu(dmabuf_fd, plane, &dataSrc);
+#endif
+		if(ret != 0)
+		{
+			printf("NvBufferMap failed \n");
+			return ret;
+		}
+		
+		dataDst = (char *)frame->payload[plane];
+		unsigned int &dstFrameLineSize = frame->linesize[plane];
+		unsigned int &srcFrameLineSize = ctx->frame_linesize[plane];
+		unsigned int &copySz = ctx->frame_linedatasize[plane];
+		
+		for (unsigned int i = 0; i < ctx->frame_height[plane]; i++)
+		{
+			memcpy(dataDst, dataSrc, copySz);
+			dataDst += dstFrameLineSize;
+			dataSrc += srcFrameLineSize;
+		}
+		
+#ifdef WITH_NVUTILS
+		NvBufSurfaceUnMap(nvbuf_surf, 0, plane);
+#else
+		NvBufferMemUnMap(dmabuf_fd, plane, &dataSrc);
+#endif
+	}
+    return 0;
+}
+
 int nvmpi_decoder_get_frame(nvmpictx* ctx,nvFrame* frame,bool wait)
 {
 	int ret;
 	NVMPI_frameBuf* fb = ctx->framePool->dqFilledBuf();
 	if(!fb) return -1;
 	
-#ifdef WITH_NVUTILS
-	NvBufSurface *dSurf = fb->dst_dma_surface;
-	ret=NvBufSurface2Raw(dSurf,0,0,ctx->frame_linesize[0],ctx->frame_height[0],frame->payload[0]);
-	ret=NvBufSurface2Raw(dSurf,0,1,ctx->frame_linesize[1],ctx->frame_height[1],frame->payload[1]);
-	if(ctx->out_pixfmt==NV_PIX_YUV420)
-		ret=NvBufSurface2Raw(dSurf,0,2,ctx->frame_linesize[2],ctx->frame_height[2],frame->payload[2]);
-#else
-	int dFd = fb->dst_dma_fd;
-	ret=NvBuffer2Raw(dFd,0,ctx->frame_linesize[0],ctx->frame_height[0],frame->payload[0]);
-	ret=NvBuffer2Raw(dFd,1,ctx->frame_linesize[1],ctx->frame_height[1],frame->payload[1]);
-	if(ctx->out_pixfmt==NV_PIX_YUV420)
-		ret=NvBuffer2Raw(dFd,2,ctx->frame_linesize[2],ctx->frame_height[2],frame->payload[2]);
-#endif
-	
-	//TODO handle NvBuffer2Raw fails
-	
+	ret = copyNvBufToFrame(ctx, fb, frame);
 	frame->timestamp=fb->timestamp;
+	
 	//return buffer to pool
 	ctx->framePool->qEmptyBuf(fb);
 	

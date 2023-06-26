@@ -136,6 +136,9 @@ static int nvmpi_decode(AVCodecContext *avctx,void *data,int *got_frame, AVPacke
 	_nvframe.payload[0] = bufFrame->data[0];
 	_nvframe.payload[1] = bufFrame->data[1];
 	_nvframe.payload[2] = bufFrame->data[2];
+	_nvframe.linesize[0] = bufFrame->linesize[0];
+	_nvframe.linesize[1] = bufFrame->linesize[1];
+	_nvframe.linesize[2] = bufFrame->linesize[2];
 
 	res=nvmpi_decoder_get_frame(nvmpi_context->ctx,&_nvframe,avctx->flags & AV_CODEC_FLAG_LOW_DELAY);
 
