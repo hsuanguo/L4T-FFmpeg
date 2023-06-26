@@ -70,6 +70,13 @@ static int nvmpi_init_decoder(AVCodecContext *avctx){
         return AVERROR(EINVAL);
     }
 	
+	//overwrite avctx w and h if resize option is used
+	if(resized.width && resized.height)
+	{
+		avctx->width = resized.width;
+		avctx->height = resized.height;
+	}
+
 	nvmpi_context->bufFrame = av_frame_alloc();
 	if (ff_get_buffer(avctx, nvmpi_context->bufFrame, 0) < 0) {
 		av_frame_free(&(nvmpi_context->bufFrame));

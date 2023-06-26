@@ -292,8 +292,8 @@ void nvmpictx::initFramePool()
 	NvBufferCreateParams input_params;
 	memset(&input_params, 0, sizeof(input_params));
 	/* Create PitchLinear output buffer for transform. */
-	input_params.width = output_width;
-	input_params.height = output_height;
+	input_params.width = coded_width;
+	input_params.height = coded_height;
 	input_params.layout = NvBufferLayout_Pitch;
 	input_params.colorFormat = cFmt;
 #ifdef WITH_NVUTILS
@@ -505,6 +505,7 @@ void dec_capture_loop_fcn(void *arg)
 	return;
 }
 
+//TODO: accept in nvmpi_create_decoder input stream params (width and height, etc...) from ffmpeg.
 nvmpictx* nvmpi_create_decoder(nvCodingType codingType, nvPixFormat pixFormat, nvSize resized){
 	
 	int ret;

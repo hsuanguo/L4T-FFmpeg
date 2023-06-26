@@ -187,10 +187,10 @@ index 2e9a358..f75ebca 100644
  extern AVCodec ff_vp9_vaapi_encoder;
 diff --git a/libavcodec/nvmpi_dec.c b/libavcodec/nvmpi_dec.c
 new file mode 100644
-index 0000000..4a77281
+index 0000000..166da0f
 --- /dev/null
 +++ b/libavcodec/nvmpi_dec.c
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,221 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <sys/time.h>
@@ -263,6 +263,13 @@ index 0000000..4a77281
 +        return AVERROR(EINVAL);
 +    }
 +	
++	//overwrite avctx w and h if resize option is used
++	if(resized.width && resized.height)
++	{
++		avctx->width = resized.width;
++		avctx->height = resized.height;
++	}
++
 +	nvmpi_context->bufFrame = av_frame_alloc();
 +	if (ff_get_buffer(avctx, nvmpi_context->bufFrame, 0) < 0) {
 +		av_frame_free(&(nvmpi_context->bufFrame));
