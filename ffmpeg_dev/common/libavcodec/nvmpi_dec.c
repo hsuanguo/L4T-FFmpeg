@@ -78,6 +78,8 @@ static int nvmpi_init_decoder(AVCodecContext *avctx){
 	}
 
 	nvmpi_context->bufFrame = av_frame_alloc();
+	nvmpi_context->bufFrame->width = avctx->width;
+	nvmpi_context->bufFrame->height = avctx->height;
 	if (ff_get_buffer(avctx, nvmpi_context->bufFrame, 0) < 0) {
 		av_frame_free(&(nvmpi_context->bufFrame));
 		nvmpi_context->bufFrame = NULL;
@@ -147,6 +149,8 @@ static int nvmpi_decode(AVCodecContext *avctx,void *data,int *got_frame, AVPacke
 	
 	*got_frame = 1;
 	
+	bufFrame->width = avctx->width;
+	bufFrame->height = avctx->height;
 	if (ff_get_buffer(avctx, bufFrame, 0) < 0) {
 		return AVERROR(ENOMEM);
 	}

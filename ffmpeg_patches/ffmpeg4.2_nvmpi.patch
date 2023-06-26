@@ -193,10 +193,10 @@ index d2f9a39..04dc62b 100644
  
 diff --git a/libavcodec/nvmpi_dec.c b/libavcodec/nvmpi_dec.c
 new file mode 100644
-index 0000000..166da0f
+index 0000000..3e85098
 --- /dev/null
 +++ b/libavcodec/nvmpi_dec.c
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,225 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <sys/time.h>
@@ -277,6 +277,8 @@ index 0000000..166da0f
 +	}
 +
 +	nvmpi_context->bufFrame = av_frame_alloc();
++	nvmpi_context->bufFrame->width = avctx->width;
++	nvmpi_context->bufFrame->height = avctx->height;
 +	if (ff_get_buffer(avctx, nvmpi_context->bufFrame, 0) < 0) {
 +		av_frame_free(&(nvmpi_context->bufFrame));
 +		nvmpi_context->bufFrame = NULL;
@@ -346,6 +348,8 @@ index 0000000..166da0f
 +	
 +	*got_frame = 1;
 +	
++	bufFrame->width = avctx->width;
++	bufFrame->height = avctx->height;
 +	if (ff_get_buffer(avctx, bufFrame, 0) < 0) {
 +		return AVERROR(ENOMEM);
 +	}
