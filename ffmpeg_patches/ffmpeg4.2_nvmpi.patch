@@ -87,6 +87,15 @@ index 5ee289f..7722021 100755
  
  
  if enabled gcrypt; then
+@@ -6575,7 +6588,7 @@ if enabled x86; then
+             disable ffnvcodec cuvid nvdec nvenc
+             ;;
+     esac
+-elif enabled ppc64 && ! enabled bigendian; then
++elif enabled_any aarch64 ppc64 && ! enabled bigendian; then
+     case $target_os in
+         linux)
+             ;;
 diff --git a/libavcodec/Makefile b/libavcodec/Makefile
 index 3cd73fb..c3ed5cc 100644
 --- a/libavcodec/Makefile
