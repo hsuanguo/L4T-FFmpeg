@@ -657,8 +657,10 @@ int copyNvBufToFrame(nvmpictx* ctx, NVMPI_frameBuf *nvmpiBuf, nvFrame* frame)
 		dataSrc = (char *)nvbuf_surf->surfaceList[0].mappedAddr.addr[plane];
 #else
 		int dmabuf_fd = nvmpiBuf->dst_dma_fd;
-		ret = NvBufferMemMap(dmabuf_fd, plane, NvBufferMem_Read_Write, (void **)&dataSrc);
-		NvBufferMemSyncForCpu(dmabuf_fd, plane, (void **)&dataSrc);
+		void *psrc_data;
+		ret = NvBufferMemMap(dmabuf_fd, plane, NvBufferMem_Read_Write, &psrc_data);
+		NvBufferMemSyncForCpu(dmabuf_fd, plane, &psrc_data);
+		dataSrc = (char *)psrc_data;
 #endif
 		if(ret != 0)
 		{
@@ -681,7 +683,7 @@ int copyNvBufToFrame(nvmpictx* ctx, NVMPI_frameBuf *nvmpiBuf, nvFrame* frame)
 #ifdef WITH_NVUTILS
 		NvBufSurfaceUnMap(nvbuf_surf, 0, plane);
 #else
-		NvBufferMemUnMap(dmabuf_fd, plane, (void **)&dataSrc);
+		NvBufferMemUnMap(dmabuf_fd, plane, &psrc_data);
 #endif
 	}
     return 0;
