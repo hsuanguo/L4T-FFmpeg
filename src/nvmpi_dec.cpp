@@ -17,7 +17,7 @@
 #define TEST_ERROR(condition, message, errorCode)    \
 	if (condition)                               \
 {                                                    \
-	std::cout<< message;			     \
+	std:cerr<< message;			     \
 }
 
 using namespace std;
@@ -628,7 +628,7 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
 	ret = ctx->dec->output_plane.qBuffer(v4l2_buf, NULL);
 	if (ret < 0)
 	{
-		std::cout << "Error Qing buffer at output plane" << std::endl;
+		std::cerr << "Error Qing buffer at output plane" << std::endl;
 		ctx->index--;
 		return false;
 	}
@@ -636,7 +636,6 @@ int nvmpi_decoder_put_packet(nvmpictx* ctx,nvPacket* packet)
 	if (v4l2_buf.m.planes[0].bytesused == 0)
 	{
 		ctx->eos=true;
-		std::cout << "Input file read complete" << std::endl;
 	}
 
 	return 0;
