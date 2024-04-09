@@ -17,7 +17,7 @@
 #define TEST_ERROR(condition, message, errorCode)    \
 	if (condition)                               \
 {                                                    \
-	std:cerr<< message;			     \
+	cerr<< message;			     \
 }
 
 using namespace std;
