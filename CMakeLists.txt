@@ -56,7 +56,8 @@ if(EXISTS "/usr/src/jetson_multimedia_api/include/nvbufsurface.h")
 	find_library(LIB_NVBUFSURFTRANSFORM nvbufsurftransform PATHS /usr/lib/aarch64-linux-gnu/tegra)
 	set(NVMPI_SRC ${NVMPI_SRC}
 		/usr/src/jetson_multimedia_api/samples/common/classes/NvBufSurface.cpp)
-	set(NVMPI_DEP_LIBS ${NVMPI_DEP_LIBS} ${LIB_NVBUFSURFACE} ${LIB_NVBUFSURFTRANSFORM})
+
+	set(NVMPI_DEP_LIBS ${CMAKE_THREAD_LIBS_INIT} ${LIB_V4L2} ${LIB_NVJPEG} ${LIB_NVBUFSURFACE} ${LIB_NVBUFSURFTRANSFORM})
 endif()
 
 add_library(nvmpi SHARED ${NVMPI_SRC})

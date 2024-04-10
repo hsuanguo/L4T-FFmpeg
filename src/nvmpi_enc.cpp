@@ -13,7 +13,7 @@
 #define TEST_ERROR(condition, message, errorCode)    \
 	if (condition)                               \
 {                                                    \
-	std::cout<< message;                         \
+	std::cerr<< message;                         \
 }
 
 using namespace std;
@@ -63,14 +63,14 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf, NvBu
 
 	if (v4l2_buf == NULL)
 	{
-		cout << "Error while dequeing buffer from output plane" << endl;
+		cerr << "Error while dequeing buffer from output plane" << endl;
 		return false;
 	}
 
 	if (buffer->planes[0].bytesused == 0)
 	{
 		ctx->capPlaneGotEOS = true;
-		cout << "Got 0 size buffer in capture \n";
+		cerr << "Got 0 size buffer in capture \n";
 		return false;
 	}
 	
