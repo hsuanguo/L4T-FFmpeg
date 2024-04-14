@@ -20,7 +20,6 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath-link=/usr
 
 find_library(LIB_NVBUF nvbuf_utils PATHS /usr/lib/aarch64-linux-gnu/tegra)
 find_library(LIB_V4L2 nvv4l2 PATHS /usr/lib/aarch64-linux-gnu/tegra)
-find_library(LIB_NVJPEG nvjpeg PATHS /usr/lib/aarch64-linux-gnu/tegra)
 find_package (Threads)
 
 set(NVMPI_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -47,7 +46,7 @@ set(NVMPI_SRC
     ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvVideoDecoder.cpp
     ${JETSON_MULTIMEDIA_API_SRC_DIR}/NvVideoEncoder.cpp)
     
-set(NVMPI_DEP_LIBS ${CMAKE_THREAD_LIBS_INIT} ${LIB_NVBUF} ${LIB_V4L2} ${LIB_NVJPEG})
+set(NVMPI_DEP_LIBS ${CMAKE_THREAD_LIBS_INIT} ${LIB_NVBUF} ${LIB_V4L2})
 
 #if NvUtils API is present prefer it to nvbuf_utils 
 if(EXISTS "/usr/src/jetson_multimedia_api/include/nvbufsurface.h")
@@ -57,7 +56,7 @@ if(EXISTS "/usr/src/jetson_multimedia_api/include/nvbufsurface.h")
 	set(NVMPI_SRC ${NVMPI_SRC}
 		/usr/src/jetson_multimedia_api/samples/common/classes/NvBufSurface.cpp)
 
-	set(NVMPI_DEP_LIBS ${CMAKE_THREAD_LIBS_INIT} ${LIB_V4L2} ${LIB_NVJPEG} ${LIB_NVBUFSURFACE} ${LIB_NVBUFSURFTRANSFORM})
+	set(NVMPI_DEP_LIBS ${CMAKE_THREAD_LIBS_INIT} ${LIB_V4L2} ${LIB_NVBUFSURFACE} ${LIB_NVBUFSURFTRANSFORM})
 endif()
 
 add_library(nvmpi SHARED ${NVMPI_SRC})
