@@ -28,7 +28,7 @@ make -j$(nproc)
 sudo make install
 
 # build ffmpeg
-git clone git://source.ffmpeg.org/ffmpeg.git -b release/4.2 --depth=1
+git clone git://source.ffmpeg.org/ffmpeg.git -b n4.2.7 --depth=1
 cd ffmpeg
 cp ${repo_dir}/ffmpeg_patches/ffmpeg4.2_nvmpi.patch ./ffmpeg_nvmpi.patch
 git apply ffmpeg_nvmpi.patch

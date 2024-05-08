@@ -1,5 +1,5 @@
 diff --git a/configure b/configure
-index d722016..265d1ee 100755
+index 6409b94..265d1ee 100755
 --- a/configure
 +++ b/configure
 @@ -349,6 +349,7 @@ External library support:
@@ -10,6 +10,22 @@ index d722016..265d1ee 100755
  
  Toolchain options:
    --arch=ARCH              select architecture [$arch]
+@@ -1735,7 +1736,6 @@ EXTERNAL_LIBRARY_GPL_LIST="
+ EXTERNAL_LIBRARY_NONFREE_LIST="
+     decklink
+     libfdk_aac
+-    openssl
+     libtls
+ "
+ 
+@@ -1827,6 +1827,7 @@ EXTERNAL_LIBRARY_LIST="
+     mediacodec
+     openal
+     opengl
++    openssl
+     pocketsphinx
+     vapoursynth
+ "
 @@ -1869,6 +1870,7 @@ HWACCEL_LIBRARY_LIST="
      omx
      opencl
@@ -80,7 +96,67 @@ index d722016..265d1ee 100755
  vp9_mediacodec_decoder_deps="mediacodec"
  vp9_qsv_decoder_select="qsvdec"
  vp9_rkmpp_decoder_deps="rkmpp"
-@@ -6548,6 +6560,7 @@ enabled rkmpp             && { require_pkg_config rkmpp rockchip_mpp  rockchip/r
+@@ -3706,23 +3718,23 @@ cws2fws_extralibs="zlib_extralibs"
+ 
+ # libraries, in any order
+ avcodec_deps="avutil"
+-avcodec_suggest="libm"
++avcodec_suggest="libm stdatomic"
+ avcodec_select="null_bsf"
+ avdevice_deps="avformat avcodec avutil"
+-avdevice_suggest="libm"
++avdevice_suggest="libm stdatomic"
+ avfilter_deps="avutil"
+-avfilter_suggest="libm"
++avfilter_suggest="libm stdatomic"
+ avformat_deps="avcodec avutil"
+-avformat_suggest="libm network zlib"
++avformat_suggest="libm network zlib stdatomic"
+ avresample_deps="avutil"
+ avresample_suggest="libm"
+-avutil_suggest="clock_gettime ffnvcodec libm libdrm libmfx opencl user32 vaapi vulkan videotoolbox corefoundation corevideo coremedia bcrypt"
++avutil_suggest="clock_gettime ffnvcodec libm libdrm libmfx opencl user32 vaapi vulkan videotoolbox corefoundation corevideo coremedia bcrypt stdatomic"
+ postproc_deps="avutil gpl"
+-postproc_suggest="libm"
++postproc_suggest="libm stdatomic"
+ swresample_deps="avutil"
+-swresample_suggest="libm libsoxr"
++swresample_suggest="libm libsoxr stdatomic"
+ swscale_deps="avutil"
+-swscale_suggest="libm"
++swscale_suggest="libm stdatomic"
+ 
+ avcodec_extralibs="pthreads_extralibs iconv_extralibs dxva2_extralibs"
+ avfilter_extralibs="pthreads_extralibs"
+@@ -6186,7 +6198,14 @@ check_headers asm/types.h
+ # it seems there are versions of clang in some distros that try to use the
+ # gcc headers, which explodes for stdatomic
+ # so we also check that atomics actually work here
+-check_builtin stdatomic stdatomic.h "atomic_int foo, bar = ATOMIC_VAR_INIT(-1); atomic_store(&foo, 0); foo += bar"
++#
++# some configurations also require linking to libatomic, so try
++# both with -latomic and without
++for LATOMIC in "-latomic" ""; do
++    check_builtin stdatomic stdatomic.h                                                 \
++        "atomic_int foo, bar = ATOMIC_VAR_INIT(-1); atomic_store(&foo, 0); foo += bar"  \
++        $LATOMIC && eval stdatomic_extralibs="\$LATOMIC" && break
++done
+ 
+ check_lib advapi32 "windows.h"            RegCloseKey          -ladvapi32
+ check_lib bcrypt   "windows.h bcrypt.h"   BCryptGenRandom      -lbcrypt &&
+@@ -6524,7 +6543,10 @@ enabled omx_rpi           && { test_code cc OMX_Core.h OMX_IndexConfigBrcmVideoR
+                                die "ERROR: OpenMAX IL headers from raspberrypi/firmware not found"; } &&
+                              enable omx
+ enabled omx               && require_headers OMX_Core.h
+-enabled openssl           && { check_pkg_config openssl openssl openssl/ssl.h OPENSSL_init_ssl ||
++enabled openssl           && { { check_pkg_config openssl "openssl >= 3.0.0" openssl/ssl.h OPENSSL_init_ssl &&
++                                 { enabled gplv3 || ! enabled gpl || enabled nonfree || die "ERROR: OpenSSL >=3.0.0 requires --enable-version3"; }; } ||
++                               { enabled gpl && ! enabled nonfree && die "ERROR: OpenSSL <3.0.0 is incompatible with the gpl"; } ||
++                               check_pkg_config openssl openssl openssl/ssl.h OPENSSL_init_ssl ||
+                                check_pkg_config openssl openssl openssl/ssl.h SSL_library_init ||
+                                check_lib openssl openssl/ssl.h OPENSSL_init_ssl -lssl -lcrypto ||
+                                check_lib openssl openssl/ssl.h SSL_library_init -lssl -lcrypto ||
+@@ -6538,6 +6560,7 @@ enabled rkmpp             && { require_pkg_config rkmpp rockchip_mpp  rockchip/r
                                   die "ERROR: rkmpp requires --enable-libdrm"; }
                               }
  enabled vapoursynth       && require_pkg_config vapoursynth "vapoursynth-script >= 42" VSScript.h vsscript_init
@@ -88,6 +164,24 @@ index d722016..265d1ee 100755
  
  
  if enabled gcrypt; then
+@@ -6555,7 +6578,7 @@ fi
+ 
+ if enabled sdl2; then
+     SDL2_CONFIG="${cross_prefix}sdl2-config"
+-    test_pkg_config sdl2 "sdl2 >= 2.0.1 sdl2 < 2.1.0" SDL_events.h SDL_PollEvent
++    test_pkg_config sdl2 "sdl2 >= 2.0.1 sdl2 < 3.0.0" SDL_events.h SDL_PollEvent
+     if disabled sdl2 && "${SDL2_CONFIG}" --version > /dev/null 2>&1; then
+         sdl2_cflags=$("${SDL2_CONFIG}" --cflags)
+         sdl2_extralibs=$("${SDL2_CONFIG}" --libs)
+@@ -7584,7 +7607,7 @@ cat > $TMPH <<EOF
+ #define FFMPEG_CONFIG_H
+ #define FFMPEG_CONFIGURATION "$(c_escape $FFMPEG_CONFIGURATION)"
+ #define FFMPEG_LICENSE "$(c_escape $license)"
+-#define CONFIG_THIS_YEAR 2021
++#define CONFIG_THIS_YEAR 2023
+ #define FFMPEG_DATADIR "$(eval c_escape $datadir)"
+ #define AVCONV_DATADIR "$(eval c_escape $datadir)"
+ #define CC_IDENT "$(c_escape ${cc_ident:-Unknown compiler})"
 diff --git a/libavcodec/Makefile b/libavcodec/Makefile
 index b3d284d..50ab6cd 100644
 --- a/libavcodec/Makefile
@@ -187,10 +281,10 @@ index 2e9a358..f75ebca 100644
  extern AVCodec ff_vp9_vaapi_encoder;
 diff --git a/libavcodec/nvmpi_dec.c b/libavcodec/nvmpi_dec.c
 new file mode 100644
-index 0000000..6ea5aba
+index 0000000..ecf2ccc
 --- /dev/null
 +++ b/libavcodec/nvmpi_dec.c
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,244 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <sys/time.h>
@@ -240,7 +334,7 @@ index 0000000..6ea5aba
 +	nvmpiDecodeContext *nvmpi_context = avctx->priv_data;
 +	nvCodingType codectype=NV_VIDEO_CodingUnused;
 +	nvSize resized = {0};
-+	
++
 +	codectype =nvmpi_get_codingtype(avctx);
 +	if (codectype == NV_VIDEO_CodingUnused) {
 +		av_log(avctx, AV_LOG_ERROR, "Unknown codec type (%d).\n", avctx->codec_id);
@@ -262,10 +356,10 @@ index 0000000..6ea5aba
 +        av_log(avctx, AV_LOG_ERROR, "Invalid resize expressions\n");
 +        return AVERROR(EINVAL);
 +    }
-+	
++
 +	//overwrite avctx w and h if resize option is used
-+	if(resized.width && resized.height)
-+	{
++	if(resized.width && resized.height) {
++		av_log(avctx, AV_LOG_INFO, "NVMPI resize: %dx%d\n", resized.width, resized.height);
 +		avctx->width = resized.width;
 +		avctx->height = resized.height;
 +	}
@@ -287,8 +381,24 @@ index 0000000..6ea5aba
 +		av_log(avctx, AV_LOG_ERROR, "Failed to nvmpi_create_decoder (code = %d).\n", AVERROR_EXTERNAL);
 +		return AVERROR_EXTERNAL;
 +	}
-+   return 0;
 +
++	// AVCodecContext extradata contains complete NALU with pps, just have to feed it to the decoder
++	if(avctx->extradata_size){
++		nvPacket packet;
++		int r;
++
++		packet.payload_size=avctx->extradata_size;
++		packet.payload=avctx->extradata;
++		packet.pts=0;
++
++		r = nvmpi_decoder_put_packet(nvmpi_context->ctx,&packet);
++		if (r < 0) {
++			av_log(avctx, AV_LOG_ERROR, "Failed to put pps packet (code = %d).\n", r);
++			return r;
++		}
++	}
++
++    return 0;
 +}
 +
 +
@@ -342,15 +452,15 @@ index 0000000..6ea5aba
 +	bufFrame->pts=_nvframe.timestamp;
 +	bufFrame->pkt_dts = AV_NOPTS_VALUE;
 +	av_frame_move_ref(frame, bufFrame);
-+	
++
 +	*got_frame = 1;
-+	
++
 +	bufFrame->width = avctx->width;
 +	bufFrame->height = avctx->height;
 +	if (ff_get_buffer(avctx, bufFrame, 0) < 0) {
 +		return AVERROR(ENOMEM);
 +	}
-+	
++
 +	frame->metadata = bufFrame->metadata;
 +	bufFrame->metadata = NULL;
 +

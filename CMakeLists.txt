@@ -15,11 +15,18 @@ set(OPT_FLAGS "-Ofast -march=native")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-value -fPIC")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-value -fPIC")
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath-link=/usr/lib/aarch64-linux-gnu/tegra")
+# Check if /usr/lib/aarch64-linux-gnu/tegra is present
+if(NOT EXISTS "/usr/lib/aarch64-linux-gnu/tegra")
+	set(JETSON_LIB_DIR "/usr/lib/aarch64-linux-gnu/nvidia")
+else()
+	set(JETSON_LIB_DIR "/usr/lib/aarch64-linux-gnu/tegra")
+endif()
+
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath-link=${JETSON_LIB_DIR}")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath-link=/usr/local/cuda/lib64")
 
-find_library(LIB_NVBUF nvbuf_utils PATHS /usr/lib/aarch64-linux-gnu/tegra)
-find_library(LIB_V4L2 nvv4l2 PATHS /usr/lib/aarch64-linux-gnu/tegra)
+find_library(LIB_NVBUF nvbuf_utils PATHS ${JETSON_LIB_DIR})
+find_library(LIB_V4L2 nvv4l2 PATHS ${JETSON_LIB_DIR})
 find_package (Threads)
 
 set(NVMPI_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -51,8 +58,8 @@ set(NVMPI_DEP_LIBS ${CMAKE_THREAD_LIBS_INIT} ${LIB_NVBUF} ${LIB_V4L2})
 #if NvUtils API is present prefer it to nvbuf_utils 
 if(EXISTS "/usr/src/jetson_multimedia_api/include/nvbufsurface.h")
 	add_definitions(-DWITH_NVUTILS)
-	find_library(LIB_NVBUFSURFACE nvbufsurface PATHS /usr/lib/aarch64-linux-gnu/tegra)
-	find_library(LIB_NVBUFSURFTRANSFORM nvbufsurftransform PATHS /usr/lib/aarch64-linux-gnu/tegra)
+	find_library(LIB_NVBUFSURFACE nvbufsurface PATHS ${JETSON_LIB_DIR})
+	find_library(LIB_NVBUFSURFTRANSFORM nvbufsurftransform PATHS ${JETSON_LIB_DIR})
 	set(NVMPI_SRC ${NVMPI_SRC}
 		/usr/src/jetson_multimedia_api/samples/common/classes/NvBufSurface.cpp)
 
