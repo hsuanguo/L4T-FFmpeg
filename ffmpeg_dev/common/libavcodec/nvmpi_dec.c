@@ -47,7 +47,7 @@ static int nvmpi_init_decoder(AVCodecContext *avctx){
 	nvmpiDecodeContext *nvmpi_context = avctx->priv_data;
 	nvCodingType codectype=NV_VIDEO_CodingUnused;
 	nvSize resized = {0};
-	
+
 	codectype =nvmpi_get_codingtype(avctx);
 	if (codectype == NV_VIDEO_CodingUnused) {
 		av_log(avctx, AV_LOG_ERROR, "Unknown codec type (%d).\n", avctx->codec_id);
@@ -69,10 +69,10 @@ static int nvmpi_init_decoder(AVCodecContext *avctx){
         av_log(avctx, AV_LOG_ERROR, "Invalid resize expressions\n");
         return AVERROR(EINVAL);
     }
-	
+
 	//overwrite avctx w and h if resize option is used
-	if(resized.width && resized.height)
-	{
+	if(resized.width && resized.height) {
+		av_log(avctx, AV_LOG_INFO, "NVMPI resize: %dx%d\n", resized.width, resized.height);
 		avctx->width = resized.width;
 		avctx->height = resized.height;
 	}
@@ -94,8 +94,24 @@ static int nvmpi_init_decoder(AVCodecContext *avctx){
 		av_log(avctx, AV_LOG_ERROR, "Failed to nvmpi_create_decoder (code = %d).\n", AVERROR_EXTERNAL);
 		return AVERROR_EXTERNAL;
 	}
-   return 0;
 
+	// AVCodecContext extradata contains complete NALU with pps, just have to feed it to the decoder
+	if(avctx->extradata_size){
+		nvPacket packet;
+		int r;
+
+		packet.payload_size=avctx->extradata_size;
+		packet.payload=avctx->extradata;
+		packet.pts=0;
+
+		r = nvmpi_decoder_put_packet(nvmpi_context->ctx,&packet);
+		if (r < 0) {
+			av_log(avctx, AV_LOG_ERROR, "Failed to put pps packet (code = %d).\n", r);
+			return r;
+		}
+	}
+
+    return 0;
 }
 
 
@@ -149,15 +165,15 @@ static int nvmpi_decode(AVCodecContext *avctx,void *data,int *got_frame, AVPacke
 	bufFrame->pts=_nvframe.timestamp;
 	bufFrame->pkt_dts = AV_NOPTS_VALUE;
 	av_frame_move_ref(frame, bufFrame);
-	
+
 	*got_frame = 1;
-	
+
 	bufFrame->width = avctx->width;
 	bufFrame->height = avctx->height;
 	if (ff_get_buffer(avctx, bufFrame, 0) < 0) {
 		return AVERROR(ENOMEM);
 	}
-	
+
 	frame->metadata = bufFrame->metadata;
 	bufFrame->metadata = NULL;
 
