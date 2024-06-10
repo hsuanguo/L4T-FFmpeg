@@ -13,25 +13,32 @@ cd "${repo_dir}"
 
 enable_gpl=${1:-"false"}
 
-install_dir=${repo_dir}/build/install/usr/local
+dest_pkg_dir="${repo_dir}/installed"
+
+# create dest_pkg_dir if not exist
+if [ ! -d "${dest_pkg_dir}" ]; then
+  mkdir -p "${dest_pkg_dir}"
+fi
 
 # build mpi
 if [ -d build ]; then
   rm -rf build
 fi
-mkdir -p ${install_dir}
 
 cd build
-
 cmake ..
 make -j$(nproc)
 sudo make install
 
 # build ffmpeg
-git clone git://source.ffmpeg.org/ffmpeg.git -b n4.4.2 --depth=1
+readonly ffmpeg_major_version="4.4"
+readonly ffmpeg_tag="n4.4.2"
+git clone git://source.ffmpeg.org/ffmpeg.git -b "${ffmpeg_tag}" --depth=1
+cp -r ${repo_dir}/ffmpeg_dev/${ffmpeg_major_version}/* ffmpeg/
+cp -r ${repo_dir}/ffmpeg_dev/common/* ffmpeg/
 cd ffmpeg
-cp ${repo_dir}/ffmpeg_patches/ffmpeg4.4_nvmpi.patch ./ffmpeg_nvmpi.patch
-git apply ffmpeg_nvmpi.patch
+
+readonly install_prefix="/usr"
 
 # if enable_gpl is true, then enable gpl
 if [ "${enable_gpl}" = "true" ]; then
@@ -94,7 +101,7 @@ if [ "${enable_gpl}" = "true" ]; then
   --enable-omx \
   --enable-frei0r \
   --enable-libx264 \
-  --prefix=${install_dir}
+  --prefix=${install_prefix}
 else
 
 ./configure \
@@ -146,8 +153,12 @@ else
   --enable-libiec61883 \
   --enable-chromaprint \
   --enable-shared \
-  --prefix=${install_dir}
+  --prefix=${install_prefix}
 fi
 
 make -j$(nproc)
-make install
+DESTDIR=${dest_pkg_dir} make install
+cp ${repo_dir}/build/libnvmpi.so* ${dest_pkg_dir}/usr/lib/ 
+cp ${repo_dir}/build/libnvmpi.a ${dest_pkg_dir}/usr/lib/ 
+# Install to the system
+sudo make install
