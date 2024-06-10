@@ -13,18 +13,12 @@ cd "${repo_dir}"
 
 enable_gpl=${1:-"false"}
 
-dest_pkg_dir="${repo_dir}/installed"
-
-# create dest_pkg_dir if not exist
-if [ ! -d "${dest_pkg_dir}" ]; then
-  mkdir -p "${dest_pkg_dir}"
-fi
-
 # build mpi
 if [ -d build ]; then
   rm -rf build
 fi
 
+mkdir build
 cd build
 cmake ..
 make -j$(nproc)
@@ -157,8 +151,17 @@ else
 fi
 
 make -j$(nproc)
+
+dest_pkg_dir="${repo_dir}/installed/${ffmpeg_tag}"
+
+# create dest_pkg_dir if not exist
+if [ ! -d "${dest_pkg_dir}" ]; then
+  mkdir -p "${dest_pkg_dir}"
+fi
+
 DESTDIR=${dest_pkg_dir} make install
 cp ${repo_dir}/build/libnvmpi.so* ${dest_pkg_dir}/usr/lib/ 
 cp ${repo_dir}/build/libnvmpi.a ${dest_pkg_dir}/usr/lib/ 
+
 # Install to the system
 sudo make install

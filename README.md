@@ -2,6 +2,8 @@
 
 FFmpeg with NVIDIA Jetson Multimedia API support, this repository is originally from [jetson-ffmpeg](https://github.com/jocover/jetson-ffmpeg) and [Keylost's fork](https://github.com/Keylost/jetson-ffmpeg), however, the upstream repository is no longer maintained as of now, so I decided to keep this repository up-to-date with the latest FFmpeg and bug fixes.
 
+Supported Jetpack versions: Jetpack 4, Jetpack 5, and Jetpack 6.
+
 ## Preparing
 
 **1. Install L4T Multimedia API(Host)**
