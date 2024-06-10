@@ -2,6 +2,8 @@
 #include "avcodec.h"
 #include "internal.h"
 #include <stdio.h>
+#include <unistd.h>
+
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
 #include "libavutil/common.h"
