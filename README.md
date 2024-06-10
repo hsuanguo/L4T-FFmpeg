@@ -1,5 +1,6 @@
-# jetson-ffmpeg
-L4T Multimedia API for ffmpeg
+# L4T-FFmpeg
+
+FFmpeg with NVIDIA Jetson Multimedia API support, this repository is originally from [jetson-ffmpeg](https://github.com/jocover/jetson-ffmpeg) and [Keylost's fork](https://github.com/Keylost/jetson-ffmpeg), however, the upstream repository is no longer maintained as of now, so I decided to keep this repository up-to-date with the latest FFmpeg and bug fixes.
 
 ## Preparing
 
@@ -18,34 +19,15 @@ Install the following in environment where you plan to build ffmpeg.
 sudo apt install frei0r-plugins-dev libgnutls28-dev ladspa-sdk libchromaprint-dev libaom-dev liblilv-dev libiec61883-dev libraw1394-dev libraw1394-tools libavc1394-dev libavc1394-tools libcaca-dev libbs2b-dev libbs2b0 libass-dev libbluray-dev libbluray-doc libbluray-bin libcodec2-dev libgme-dev libdrm-dev libflite1 libgsm1-dev libmp3lame-dev libmysofa-dev libopenjp2-7-dev libopenmpt-dev libopus-dev libpulse-dev librsvg2-dev librubberband-dev libshine-dev libsnappy-dev libsoxr-dev libssh-dev libspeex-dev libtheora-dev libtwolame-dev libvidstab-dev libzmq3-dev libzvbi-dev libopenal-dev libvo-aacenc-dev libvo-amrwbenc-dev libvorbis-dev libvpx-dev libwavpack-dev libwebp-dev libx264-dev libx265-dev libxvidcore-dev libomxil-bellagio-dev libjack-dev libsdl2-dev flite1-dev libiec61883-dev libbluray-dev libdc1394-dev
 ```
 
-Note that you might need to install more dependencies as something could(must) be missing, you will figure it out :).
-
+Note that you might need to install more dependencies as something else could be missing, you will figure it out :).
 
 ## Building 
 
 **1.build and install library**
 
+Run the building script which corresponds to the version of FFmpeg you want to build, for example, if you want to build FFmpeg 4.2, run the following command:
+
 ```bash
 build_4.2.sh
 ```
-
-**3.using**
-
-### Supports Decoding
-  - MPEG2
-  - H.264/AVC
-  - HEVC
-  - VP8
-  - VP9
-  
-**example**
-
-    ffmpeg -c:v h264_nvmpi -i input_file -f null -
-	
-### Supports Encoding
-  - H.264/AVC
-  - HEVC
-  
-**example**
-
-    ffmpeg -i input_file -c:v h264_nvmpi <output.mp4>
+once done, you can run `ffmpeg -codecs | grep nvmpi` to check if the NVIDIA Jetson Multimedia API codecs are enabled.
