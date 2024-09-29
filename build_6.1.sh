@@ -30,7 +30,11 @@ readonly ffmpeg_tag="n6.1.1"
 git clone git://source.ffmpeg.org/ffmpeg.git -b "${ffmpeg_tag}" --depth=1
 cp -r ${repo_dir}/ffmpeg_dev/${ffmpeg_major_version}/* ffmpeg/
 cp -r ${repo_dir}/ffmpeg_dev/common/* ffmpeg/
+
 cd ffmpeg
+
+# Apply patches
+git apply ./patches/libavcodec-librsvgdec.patch
 
 readonly install_prefix="/usr"
 
@@ -40,7 +44,6 @@ if [ "${enable_gpl}" = "true" ]; then
 ./configure \
   --enable-nvmpi \
   --disable-stripping \
-  --disable-filter=resample \
   --enable-gnutls \
   --enable-ladspa \
   --enable-libaom \
@@ -100,7 +103,6 @@ else
 ./configure \
   --enable-nvmpi \
   --disable-stripping \
-  --disable-filter=resample \
   --enable-gnutls \
   --enable-ladspa \
   --enable-libaom \
