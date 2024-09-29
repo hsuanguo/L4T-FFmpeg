@@ -43,7 +43,6 @@ if [ "${enable_gpl}" = "true" ]; then
 ./configure \
   --enable-nvmpi \
   --disable-stripping \
-  --disable-filter=resample \
   --enable-gnutls \
   --enable-ladspa \
   --enable-libaom \
@@ -103,7 +102,6 @@ else
 ./configure \
   --enable-nvmpi \
   --disable-stripping \
-  --disable-filter=resample \
   --enable-gnutls \
   --enable-ladspa \
   --enable-libaom \
