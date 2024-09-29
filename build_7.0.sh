@@ -25,12 +25,11 @@ make -j$(nproc)
 sudo make install
 
 # build ffmpeg
-readonly ffmpeg_major_version="6.1"
-readonly ffmpeg_tag="n6.1.1"
+readonly ffmpeg_major_version="7.0"
+readonly ffmpeg_tag="n7.0.2"
 git clone git://source.ffmpeg.org/ffmpeg.git -b "${ffmpeg_tag}" --depth=1
 cp -r ${repo_dir}/ffmpeg_dev/${ffmpeg_major_version}/* ffmpeg/
 cp -r ${repo_dir}/ffmpeg_dev/common/* ffmpeg/
-
 cd ffmpeg
 
 # Apply patches
@@ -65,7 +64,6 @@ if [ "${enable_gpl}" = "true" ]; then
   --enable-libopenmpt \
   --enable-libopus \
   --enable-libpulse \
-  --enable-librsvg \
   --enable-libshine \
   --enable-libsnappy \
   --enable-libsoxr \
@@ -79,6 +77,7 @@ if [ "${enable_gpl}" = "true" ]; then
   --enable-libxml2 \
   --enable-libzmq \
   --enable-libzvbi \
+  --enable-librsvg \
   --enable-lv2 \
   --enable-openal \
   --enable-opengl \
@@ -124,7 +123,6 @@ else
   --enable-libopenmpt \
   --enable-libopus \
   --enable-libpulse \
-  --enable-librsvg \
   --enable-libshine \
   --enable-libsnappy \
   --enable-libsoxr \
@@ -138,6 +136,7 @@ else
   --enable-libxml2 \
   --enable-libzmq \
   --enable-libzvbi \
+  --enable-librsvg \
   --enable-lv2 \
   --enable-openal \
   --enable-opengl \

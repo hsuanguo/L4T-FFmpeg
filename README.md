@@ -27,9 +27,9 @@ Note that you might need to install more dependencies as something else could be
 
 **1.build and install library**
 
-Run the building script which corresponds to the version of FFmpeg you want to build, for example, if you want to build FFmpeg 4.2, run the following command:
+Run the building script which corresponds to the version of FFmpeg you want to build, for example, if you want to build FFmpeg 7.0, run the following command:
 
 ```bash
-build_4.2.sh
+build_7.0.sh
 ```
 once done, you can run `ffmpeg -codecs | grep nvmpi` to check if the NVIDIA Jetson Multimedia API codecs are enabled.
