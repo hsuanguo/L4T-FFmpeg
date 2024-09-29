@@ -1,0 +1,16 @@
+diff --git a/libavcodec/librsvgdec.c b/libavcodec/librsvgdec.c
+index c328fbc..5ac0f8f 100644
+--- a/libavcodec/librsvgdec.c
++++ b/libavcodec/librsvgdec.c
+@@ -89,9 +89,11 @@ static int librsvg_decode_frame(AVCodecContext *avctx, AVFrame *frame,
+     if (ret < 0)
+         goto end;
+ 
++#if LIBRSVG_MAJOR_VERSION > 2 || LIBRSVG_MAJOR_VERSION == 2 && LIBRSVG_MINOR_VERSION >= 52
+     avctx->pix_fmt = AV_PIX_FMT_RGB32;
+     viewport.width = dimensions.width;
+     viewport.height = dimensions.height;
++#endif
+ 
+     ret = ff_get_buffer(avctx, frame, 0);
+     if (ret < 0)
