@@ -13,19 +13,9 @@ cd "${repo_dir}"
 
 ffmpeg_major_version=${1:-"7.1"}
 enable_gpl=${2:-"false"}
+system_install=${3:-"false"}
 
 readonly install_prefix="/usr"
-
-# build mpi
-if [ -d build ]; then
-  rm -rf build
-fi
-
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX="$install_prefix"  ..
-make -j$(nproc)
-sudo make install
 
 extra_options=()
 case "${ffmpeg_major_version}" in
@@ -61,9 +51,22 @@ case "${ffmpeg_major_version}" in
     ;;
 esac
 
-echo "Building ffmpeg ${ffmpeg_tag}...."
+echo "Building ffmpeg ${ffmpeg_major_version} with tag ${ffmpeg_tag}...."
+
+if [ -d build ]; then
+  rm -rf build
+fi
+
+# build mpi
+echo "Building mpi library...."
+mkdir build
+cd build
+cmake -DCMAKE_INSTALL_PREFIX="$install_prefix"  ..
+make -j$(nproc)
+sudo make install
 
 # build ffmpeg
+echo "Building ffmpeg...."
 git clone git://source.ffmpeg.org/ffmpeg.git -b "${ffmpeg_tag}" --depth=1
 cp -r ${repo_dir}/ffmpeg_dev/${ffmpeg_major_version}/* ffmpeg/
 cp -r ${repo_dir}/ffmpeg_dev/common/* ffmpeg/
@@ -159,5 +162,20 @@ DESTDIR=${dest_pkg_dir} make install
 cp ${repo_dir}/build/libnvmpi.so* ${dest_pkg_dir}/usr/lib/ 
 cp ${repo_dir}/build/libnvmpi.a ${dest_pkg_dir}/usr/lib/ 
 
+cd "${dest_pkg_dir}"
+tar zcvf "ffmpeg-${ffmpeg_major_version}.tar.gz" usr/
+
+# Get the os_arch, dpkg-architecture is not available, then use aarch64-linux-gnu as default
+os_arch=$(dpkg-architecture -qDEB_HOST_GNU_TYPE) || os_arch="aarch64-linux-gnu"
+
+# calculate sha256sum, and change the file name to ffmpeg-${ffmpeg_major_version}-${os_arch}-<hash-first8>.tar.gz
+hash_tag=$(sha256sum "ffmpeg-${ffmpeg_major_version}.tar.gz" | cut -d ' ' -f 1)
+mv "ffmpeg-${ffmpeg_major_version}.tar.gz" "ffmpeg-${ffmpeg_major_version}-${os_arch}-${hash_tag}.tar.gz"
+
 # Install to the system
-sudo make install
+if [ "${system_install}" = "true" ]; then
+  echo "Installing ffmpeg to ${install_prefix}...."
+  sudo make install
+fi
+
+echo "FFMPeg build completed successfully, package is available at ${dest_pkg_dir}/ffmpeg-${ffmpeg_major_version}-${os_arch}-${hash_tag}.tar.gz"
