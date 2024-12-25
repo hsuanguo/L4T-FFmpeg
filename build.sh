@@ -170,11 +170,13 @@ os_arch=$(dpkg-architecture -qDEB_HOST_GNU_TYPE) || os_arch="aarch64-linux-gnu"
 
 # calculate sha256sum, and change the file name to ffmpeg-${ffmpeg_major_version}-${os_arch}-<hash-first8>.tar.gz
 hash_tag=$(sha256sum "ffmpeg-${ffmpeg_major_version}.tar.gz" | cut -d ' ' -f 1)
+hash_tag=${hash_tag:0:8}
 mv "ffmpeg-${ffmpeg_major_version}.tar.gz" "ffmpeg-${ffmpeg_major_version}-${os_arch}-${hash_tag}.tar.gz"
 
 # Install to the system
 if [ "${system_install}" = "true" ]; then
   echo "Installing ffmpeg to ${install_prefix}...."
+  cd "${repo_dir}/build/ffmpeg"
   sudo make install
 fi
 
