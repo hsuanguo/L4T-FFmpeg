@@ -15,8 +15,6 @@ ffmpeg_major_version=${1:-"7.1"}
 enable_gpl=${2:-"false"}
 system_install=${3:-"false"}
 
-readonly install_prefix="/usr"
-
 extra_options=()
 case "${ffmpeg_major_version}" in
 
@@ -53,6 +51,10 @@ esac
 
 echo "Building ffmpeg ${ffmpeg_major_version} with tag ${ffmpeg_tag}...."
 
+# Get the os_arch, dpkg-architecture is not available, then use aarch64-linux-gnu as default
+os_arch=$(dpkg-architecture -qDEB_HOST_GNU_TYPE) || os_arch="aarch64-linux-gnu"
+
+
 if [ -d build ]; then
   rm -rf build
 fi
@@ -61,7 +63,7 @@ fi
 echo "Building mpi library...."
 mkdir build
 cd build
-cmake -DCMAKE_INSTALL_PREFIX="$install_prefix"  ..
+cmake -DCMAKE_INSTALL_PREFIX="/usr"  ..
 make -j$(nproc)
 sudo make install
 
@@ -124,7 +126,9 @@ base_options=(
   --enable-libiec61883
   --enable-chromaprint
   --enable-shared
-  --prefix=${install_prefix}
+  --libdir=/usr/lib/${os_arch}
+  --incdir=/usr/include/${os_arch}
+  --prefix=/usr
 )
 
 # if enable_gpl is true, then enable gpl
@@ -165,19 +169,18 @@ cp ${repo_dir}/build/libnvmpi.a ${dest_pkg_dir}/usr/lib/
 cd "${dest_pkg_dir}"
 tar zcvf "ffmpeg-${ffmpeg_major_version}.tar.gz" usr/
 
-# Get the os_arch, dpkg-architecture is not available, then use aarch64-linux-gnu as default
-os_arch=$(dpkg-architecture -qDEB_HOST_GNU_TYPE) || os_arch="aarch64-linux-gnu"
+cpu_arch=$(uname -m) || cpu_arch="aarch64"
 
-# calculate sha256sum, and change the file name to ffmpeg-${ffmpeg_major_version}-${os_arch}-<hash-first8>.tar.gz
+# calculate sha256sum, and change the file name to ffmpeg-${ffmpeg_major_version}-${cpu_arch}-<hash-first8>.tar.gz
 hash_tag=$(sha256sum "ffmpeg-${ffmpeg_major_version}.tar.gz" | cut -d ' ' -f 1)
 hash_tag=${hash_tag:0:8}
-mv "ffmpeg-${ffmpeg_major_version}.tar.gz" "ffmpeg-${ffmpeg_major_version}-${os_arch}-${hash_tag}.tar.gz"
+mv "ffmpeg-${ffmpeg_major_version}.tar.gz" "ffmpeg-${ffmpeg_major_version}-${cpu_arch}-${hash_tag}.tar.gz"
 
 # Install to the system
 if [ "${system_install}" = "true" ]; then
-  echo "Installing ffmpeg to ${install_prefix}...."
+  echo "Installing ffmpeg to /usr ...."
   cd "${repo_dir}/build/ffmpeg"
   sudo make install
 fi
 
-echo "FFMPeg build completed successfully, package is available at ${dest_pkg_dir}/ffmpeg-${ffmpeg_major_version}-${os_arch}-${hash_tag}.tar.gz"
+echo "FFMPeg build completed successfully, package is available at ${dest_pkg_dir}/ffmpeg-${ffmpeg_major_version}-${cpu_arch}-${hash_tag}.tar.gz"
