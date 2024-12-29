@@ -6,6 +6,7 @@
 
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
+#include "libavutil/mem.h"
 #include "libavutil/common.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/log.h"
