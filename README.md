@@ -3,7 +3,7 @@
 FFmpeg with NVIDIA Jetson Multimedia API support, this repository is originally from [jetson-ffmpeg](https://github.com/jocover/jetson-ffmpeg) and [Keylost's fork](https://github.com/Keylost/jetson-ffmpeg), however, the upstream repository is no longer maintained as of now, so I decided to keep this repository up-to-date with the latest FFmpeg and bug fixes.
 
 - Supported Jetpack versions: Jetpack 4, Jetpack 5, and Jetpack 6.
-- Supported FFmpeg versions: 4.2, 4.4, 6.1, 7.0, 7.1.
+- Supported FFmpeg versions: 4.2, 4.4, 6.0, 6.1, 7.0, 7.1, 8.0.
 
 ## Preparing
 
@@ -34,10 +34,10 @@ Run the building script which corresponds to the version of FFmpeg you want to b
 build.sh <version> <enable-gpl, true/false> <system-install, true/false>
 ```
 
-for example, if you want to build FFmpeg 7.1 and install it to system, run the following command:
+for example, if you want to build FFmpeg 8.0 and install it to system, run the following command:
 
 ```bash
-./build.sh 7.1 false true
+./build.sh 8.0 false true
 ```
 
 once done, you can run `ffmpeg -codecs | grep nvmpi` to check if the NVIDIA Jetson Multimedia API codecs are enabled.

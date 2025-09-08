@@ -20,7 +20,6 @@
 #include "codec_internal.h"
 #endif
 
-
 typedef struct {
 	char eos_reached;
 	nvmpictx* ctx;

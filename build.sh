@@ -35,6 +35,10 @@ case "${ffmpeg_major_version}" in
       --disable-filter=resample
     )
     ;;
+  "6.0")
+    readonly ffmpeg_tag="n6.0.1"
+    patch_file="none"
+    ;;
   "6.1")
     readonly ffmpeg_tag="n6.1.1"
     patch_file="libavcodec-librsvgdec.patch"
@@ -47,6 +51,11 @@ case "${ffmpeg_major_version}" in
     readonly ffmpeg_tag="n7.1"
     patch_file="none"
     ;;
+  "8.0")
+    readonly ffmpeg_tag="n8.0"
+    patch_file="ffmpeg-8.0-nvmpi.patch"
+    ;;
+
 esac
 
 echo "Building ffmpeg ${ffmpeg_major_version} with tag ${ffmpeg_tag}...."
@@ -76,6 +85,7 @@ cd ffmpeg
 
 # Apply patches
 if [ "${patch_file}" != "none" ]; then
+  echo "Applying patch ${patch_file} ...."
   git apply ./patches/${patch_file}
 fi
 
