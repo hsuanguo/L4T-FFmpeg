@@ -53,7 +53,7 @@ case "${ffmpeg_major_version}" in
     ;;
   "8.0")
     readonly ffmpeg_tag="n8.0"
-    patch_file="none"
+    patch_file="ffmpeg-8.0-nvmpi.patch"
     ;;
 
 esac

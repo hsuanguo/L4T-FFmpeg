@@ -20,14 +20,6 @@
 #include "codec_internal.h"
 #endif
 
-#if LIBAVCODEC_VERSION_MAJOR >= 62
-#define FF_PROFILE_H264_INTRA AV_PROFILE_H264_INTRA
-#define FF_PROFILE_UNKNOWN AV_PROFILE_UNKNOWN
-#define FF_PROFILE_H264_HIGH AV_PROFILE_H264_HIGH
-#define FF_PROFILE_H264_BASELINE AV_PROFILE_H264_BASELINE
-#define FF_PROFILE_H264_MAIN AV_PROFILE_H264_MAIN
-#endif
-
 typedef struct {
 	char eos_reached;
 	nvmpictx* ctx;
