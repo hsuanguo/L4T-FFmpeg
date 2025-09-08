@@ -51,6 +51,11 @@ case "${ffmpeg_major_version}" in
     readonly ffmpeg_tag="n7.1"
     patch_file="none"
     ;;
+  "8.0")
+    readonly ffmpeg_tag="n8.0"
+    patch_file="none"
+    ;;
+
 esac
 
 echo "Building ffmpeg ${ffmpeg_major_version} with tag ${ffmpeg_tag}...."
